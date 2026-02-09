@@ -1,33 +1,17 @@
-// Detect mobile device
-const isMobile = typeof window !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(window.navigator?.userAgent || '');
-
 export const CONFIG = {
     TILE_SIZE: 64,
     MAP_WIDTH: 20,
     MAP_HEIGHT: 15,
-    UI_WIDTH: isMobile ? 150 : 300,  // Smaller UI on mobile
+    UI_WIDTH: 300,
     MAX_PLAYERS: 4,
     STARTING_GOLD: 50,
     STARTING_UNITS: { HERO: 1, LIGHT_INFANTRY: 2 },
-    VERSION: '1.1.0',
-    IS_MOBILE: isMobile
+    VERSION: '1.1.0'
 };
 
-// Viewport size calculation
-// On mobile: fit to screen width minus UI, on desktop: fixed size
-const mobileScreenWidth = isMobile && typeof window !== 'undefined' ? window.innerWidth : 0;
-const mobileScreenHeight = isMobile && typeof window !== 'undefined' ? window.innerHeight : 0;
-
-// Mobile viewport: use available space minus UI, but at least 15 tiles wide
-const mobileViewportWidth = isMobile
-    ? Math.max(mobileScreenWidth - CONFIG.UI_WIDTH, 15 * CONFIG.TILE_SIZE)
-    : 20 * CONFIG.TILE_SIZE;
-const mobileViewportHeight = isMobile
-    ? Math.max(mobileScreenHeight, 12 * CONFIG.TILE_SIZE)
-    : 15 * CONFIG.TILE_SIZE;
-
-export const VIEWPORT_WIDTH = mobileViewportWidth;
-export const VIEWPORT_HEIGHT = mobileViewportHeight;
+// Viewport size (visible area) - fixed, independent of map size
+export const VIEWPORT_WIDTH = 20 * CONFIG.TILE_SIZE;  // 1280px visible map area
+export const VIEWPORT_HEIGHT = 15 * CONFIG.TILE_SIZE; // 960px visible map area
 
 // Total game window includes UI sidebar
 export const GAME_WIDTH = VIEWPORT_WIDTH + CONFIG.UI_WIDTH;
