@@ -9,20 +9,32 @@
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
+        html, body {
             background: #1a1a2e;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Press Start 2P', cursive;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        #game-container {
+            width: 100%;
+            height: 100%;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-            font-family: 'Press Start 2P', cursive;
         }
-        #game-container {
-            border: 4px solid #444;
+        canvas {
+            max-width: 100%;
+            max-height: 100%;
             box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            touch-action: none;
         }
     </style>
-  <script type="module" crossorigin src="/warfire/assets/index-CTGs9IdC.js"></script>
+  <script type="module" crossorigin src="/warfire/assets/index-BqMClvIp.js"></script>
 </head>
 <body>
     <div id="game-container"></div>
