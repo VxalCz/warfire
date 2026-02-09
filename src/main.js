@@ -12,7 +12,7 @@ const config = {
     pixelArt: true,
     scene: [MenuScene, GameScene],
     scale: {
-        mode: Phaser.Scale.ENVELOP,
+        mode: Phaser.Scale.RESIZE,
         autoCenter: Phaser.Scale.CENTER_BOTH
     },
     input: {

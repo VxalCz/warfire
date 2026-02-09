@@ -1,21 +1,34 @@
+// Detect mobile device
+const isMobile = typeof window !== 'undefined' &&
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(window.navigator?.userAgent || '');
+
+// Get screen dimensions for responsive sizing
+const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1600;
+const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 900;
+
+// On mobile use full screen, on desktop use fixed size
+const gameWidth = isMobile ? screenWidth : 1600;
+const gameHeight = isMobile ? screenHeight : 960;
+
 export const CONFIG = {
     TILE_SIZE: 64,
     MAP_WIDTH: 20,
     MAP_HEIGHT: 15,
-    UI_WIDTH: 300,
+    UI_WIDTH: isMobile ? Math.min(150, screenWidth * 0.25) : 300,
     MAX_PLAYERS: 4,
     STARTING_GOLD: 50,
     STARTING_UNITS: { HERO: 1, LIGHT_INFANTRY: 2 },
-    VERSION: '1.1.0'
+    VERSION: '1.1.0',
+    IS_MOBILE: isMobile
 };
 
-// Viewport size (visible area) - fixed, independent of map size
-export const VIEWPORT_WIDTH = 20 * CONFIG.TILE_SIZE;  // 1280px visible map area
-export const VIEWPORT_HEIGHT = 15 * CONFIG.TILE_SIZE; // 960px visible map area
+// Viewport size - responsive based on screen
+export const VIEWPORT_WIDTH = isMobile ? (screenWidth - CONFIG.UI_WIDTH) : (20 * CONFIG.TILE_SIZE);
+export const VIEWPORT_HEIGHT = isMobile ? screenHeight : (15 * CONFIG.TILE_SIZE);
 
-// Total game window includes UI sidebar
-export const GAME_WIDTH = VIEWPORT_WIDTH + CONFIG.UI_WIDTH;
-export const GAME_HEIGHT = VIEWPORT_HEIGHT;
+// Total game window
+export const GAME_WIDTH = gameWidth;
+export const GAME_HEIGHT = gameHeight;
 
 export const COLORS = {
     players: [0x3B5DC9, 0xEF476F, 0x06D6A0, 0xFFD23F],

@@ -1,10 +1,6 @@
 import { CONFIG, GAME_WIDTH, GAME_HEIGHT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, COLORS, TERRAIN_NAMES, TERRAIN_DEFENSE } from '../constants.js';
 import { Events } from '../utils.js';
 
-// Detect mobile device
-const isMobile = typeof window !== 'undefined' &&
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(window.navigator?.userAgent || '');
-
 export class UIController {
     constructor(scene, x, y, width, height) {
         this.scene = scene;
@@ -15,7 +11,7 @@ export class UIController {
         this.elements = {};
         this.panels = {};
         // Mobile UI adjustments
-        this.isMobile = isMobile;
+        this.isMobile = CONFIG.IS_MOBILE;
         this.fontSize = this.isMobile ? '14px' : '16px';
         this.smallFont = this.isMobile ? '12px' : '14px';
         this.tinyFont = this.isMobile ? '10px' : '12px';
