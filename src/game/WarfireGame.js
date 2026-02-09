@@ -880,6 +880,11 @@ export class WarfireGame {
         this.dragStart = { x: 0, y: 0 };
         this.cameraStart = { x: 0, y: 0 };
 
+        // Pinch zoom tracking
+        this.pinchDistance = 0;
+        this.pinchCenter = { x: 0, y: 0 };
+        this.pinchZoomStart = 1;
+
         // Pointer down - start drag or click
         this.scene.input.on('pointerdown', (pointer) => {
             // Only handle if in viewport (not on UI)
@@ -939,6 +944,78 @@ export class WarfireGame {
             }
 
             this.isDragging = false;
+        });
+
+        // Pinch zoom for mobile
+        this.scene.input.on('pointerdown', (pointer) => {
+            // Check if we have two pointers (multi-touch)
+            const pointers = this.scene.input.getActivePointers();
+            if (pointers.length >= 2) {
+                this.isDragging = false; // Cancel drag when pinching starts
+                const p1 = pointers[0];
+                const p2 = pointers[1];
+
+                // Calculate initial distance and center
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                this.pinchDistance = Math.sqrt(dx * dx + dy * dy);
+                this.pinchCenter = {
+                    x: (p1.x + p2.x) / 2,
+                    y: (p1.y + p2.y) / 2
+                };
+                this.pinchZoomStart = this.renderer.zoom;
+            }
+        });
+
+        this.scene.input.on('pointermove', (pointer) => {
+            const pointers = this.scene.input.getActivePointers();
+
+            if (pointers.length >= 2) {
+                const p1 = pointers[0];
+                const p2 = pointers[1];
+
+                // Calculate current distance
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // Calculate new zoom
+                if (this.pinchDistance > 0) {
+                    const scale = distance / this.pinchDistance;
+                    const newZoom = this.pinchZoomStart * scale;
+
+                    // Calculate new center point
+                    const newCenterX = (p1.x + p2.x) / 2;
+                    const newCenterY = (p1.y + p2.y) / 2;
+
+                    // Apply zoom at the pinch center
+                    this.renderer.zoomAt(newZoom, newCenterX, newCenterY);
+                    this.updateUI(); // Update minimap
+
+                    // Track how much we've panned during pinch
+                    const panX = newCenterX - this.pinchCenter.x;
+                    const panY = newCenterY - this.pinchCenter.y;
+
+                    // Pan camera to follow pinch movement
+                    if (Math.abs(panX) > 1 || Math.abs(panY) > 1) {
+                        this.renderer.moveCamera(-panX / this.renderer.zoom, -panY / this.renderer.zoom);
+                        this.pinchCenter.x = newCenterX;
+                        this.pinchCenter.y = newCenterY;
+                    }
+                }
+            }
+        });
+
+        this.scene.input.on('pointerup', () => {
+            this.pinchDistance = 0;
+        });
+
+        // Mouse wheel zoom for desktop
+        this.scene.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
+            const zoomSpeed = 0.001;
+            const newZoom = this.renderer.zoom - deltaY * zoomSpeed;
+            this.renderer.zoomAt(newZoom, pointer.x, pointer.y);
+            this.updateUI();
         });
 
         // Keyboard camera controls

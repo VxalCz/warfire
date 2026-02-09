@@ -18,6 +18,10 @@ export class RenderSystem {
         this.camera = { x: 0, y: 0 };
         this.mapWidth = 0;
         this.mapHeight = 0;
+        // Zoom level (1.0 = 100%)
+        this.zoom = 1.0;
+        this.minZoom = 0.5;
+        this.maxZoom = 2.0;
     }
 
     initialize() {
@@ -65,11 +69,43 @@ export class RenderSystem {
      * Apply camera transform to world containers
      */
     updateCameraTransform() {
-        // Update container positions
-        this.containers.map.setPosition(-this.camera.x, -this.camera.y);
-        this.containers.highlights.setPosition(-this.camera.x, -this.camera.y);
-        this.containers.units.setPosition(-this.camera.x, -this.camera.y);
-        this.containers.hover.setPosition(-this.camera.x, -this.camera.y);
+        // Update container positions with zoom
+        const scale = this.zoom;
+        this.containers.map.setPosition(-this.camera.x * scale, -this.camera.y * scale);
+        this.containers.map.setScale(scale);
+        this.containers.highlights.setPosition(-this.camera.x * scale, -this.camera.y * scale);
+        this.containers.highlights.setScale(scale);
+        this.containers.units.setPosition(-this.camera.x * scale, -this.camera.y * scale);
+        this.containers.units.setScale(scale);
+        this.containers.hover.setPosition(-this.camera.x * scale, -this.camera.y * scale);
+        this.containers.hover.setScale(scale);
+    }
+
+    /**
+     * Set zoom level
+     */
+    setZoom(zoom) {
+        this.zoom = Phaser.Math.Clamp(zoom, this.minZoom, this.maxZoom);
+        this.updateCameraTransform();
+    }
+
+    /**
+     * Zoom at specific screen position (for pinch zoom)
+     */
+    zoomAt(zoom, screenX, screenY) {
+        const oldZoom = this.zoom;
+        const newZoom = Phaser.Math.Clamp(zoom, this.minZoom, this.maxZoom);
+
+        // Calculate world point before and after zoom
+        const worldX = (screenX + this.camera.x * oldZoom) / oldZoom;
+        const worldY = (screenY + this.camera.y * oldZoom) / oldZoom;
+
+        // Adjust camera to keep the point under cursor/fingers stable
+        this.camera.x = (worldX * newZoom - screenX) / newZoom;
+        this.camera.y = (worldY * newZoom - screenY) / newZoom;
+
+        this.zoom = newZoom;
+        this.updateCameraTransform();
     }
 
     /**
@@ -98,8 +134,8 @@ export class RenderSystem {
      * Convert screen coordinates to world tile coordinates
      */
     screenToTile(screenX, screenY) {
-        const worldX = screenX + this.camera.x;
-        const worldY = screenY + this.camera.y;
+        const worldX = (screenX + this.camera.x * this.zoom) / this.zoom;
+        const worldY = (screenY + this.camera.y * this.zoom) / this.zoom;
         return {
             x: Math.floor(worldX / CONFIG.TILE_SIZE),
             y: Math.floor(worldY / CONFIG.TILE_SIZE)
