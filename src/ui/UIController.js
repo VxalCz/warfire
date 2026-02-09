@@ -10,6 +10,11 @@ export class UIController {
         this.height = height;
         this.elements = {};
         this.panels = {};
+        // Mobile UI adjustments
+        this.isMobile = CONFIG.IS_MOBILE;
+        this.fontSize = this.isMobile ? '14px' : '16px';
+        this.smallFont = this.isMobile ? '12px' : '14px';
+        this.tinyFont = this.isMobile ? '10px' : '12px';
     }
 
     initialize() {
@@ -42,36 +47,48 @@ export class UIController {
         bg.lineStyle(2, 0xFFD700, 0.5);
         bg.strokeRect(this.x + 8, this.y + 8, this.width - 16, 30);
 
-        // Player info with icons (using text instead of emojis for compatibility)
-        this.elements.playerText = this.createText(15, 45, 'Player 1', { fontSize: '16px', color: '#FFFFFF' });
-        this.elements.goldText = this.createText(35, 75, '50g', { fontSize: '14px', color: '#FFD700' });
-        this.elements.turnText = this.createText(35, 105, 'Turn 1', { fontSize: '12px', color: '#AAAAAA' });
+        // Player info with icons - larger fonts on mobile
+        this.elements.playerText = this.createText(15, 45, 'Player 1', { fontSize: this.fontSize, color: '#FFFFFF' });
+        this.elements.goldText = this.createText(35, 75, '50g', { fontSize: this.smallFont, color: '#FFD700' });
+        this.elements.turnText = this.createText(35, 105, 'Turn 1', { fontSize: this.tinyFont, color: '#AAAAAA' });
 
         // Icons for gold and turn (text-based)
-        const goldIcon = this.scene.add.text(this.x + 15, this.y + 75, '$', { fontSize: '14px', color: '#FFD700', fontFamily: 'Press Start 2P' });
-        const turnIcon = this.scene.add.text(this.x + 15, this.y + 105, 'T', { fontSize: '12px', color: '#AAAAAA', fontFamily: 'Press Start 2P' });
+        const goldIcon = this.scene.add.text(this.x + 15, this.y + 75, '$', { fontSize: this.smallFont, color: '#FFD700', fontFamily: 'Press Start 2P' });
+        const turnIcon = this.scene.add.text(this.x + 15, this.y + 105, 'T', { fontSize: this.tinyFont, color: '#AAAAAA', fontFamily: 'Press Start 2P' });
 
         // Panel sections with decorative headers
         this.panels.selectedHeader = this.createPanelHeader(10, 130, 'Selected Unit');
-        this.elements.selectedInfo = this.createText(15, 155, 'None', { fontSize: '10px', lineSpacing: 5 });
+        this.elements.selectedInfo = this.createText(15, 155, 'None', { fontSize: this.isMobile ? '12px' : '10px', lineSpacing: 5 });
 
         this.panels.stackHeader = this.createPanelHeader(10, 240, 'Stack');
-        this.elements.stackInfo = this.createText(15, 265, '', { fontSize: '9px', lineSpacing: 3 });
+        this.elements.stackInfo = this.createText(15, 265, '', { fontSize: this.isMobile ? '11px' : '9px', lineSpacing: 3 });
 
         this.panels.tileHeader = this.createPanelHeader(10, 320, 'Tile Info');
-        this.elements.tileInfo = this.createText(15, 345, '', { fontSize: '10px', lineSpacing: 4 });
+        this.elements.tileInfo = this.createText(15, 345, '', { fontSize: this.isMobile ? '12px' : '10px', lineSpacing: 4 });
 
-        // Action buttons
-        this.elements.endTurnBtn = this.createEnhancedButton(50, this.height - 150, 200, 50, 'END TURN', 0xFFD700, 0xFFAA00);
-        this.elements.saveBtn = this.createEnhancedButton(50, this.height - 90, 95, 40, 'SAVE', 0x4CAF50, 0x388E3C);
-        this.elements.loadBtn = this.createEnhancedButton(155, this.height - 90, 95, 40, 'LOAD', 0x2196F3, 0x1976D2);
+        // Action buttons - smaller and adjusted for mobile
+        const btnY = this.height - (this.isMobile ? 100 : 150);
+        const btnWidth = this.isMobile ? 130 : 200;
+        const btnHeight = this.isMobile ? 40 : 50;
+        this.elements.endTurnBtn = this.createEnhancedButton(
+            this.isMobile ? 10 : 50, btnY, btnWidth, btnHeight, 'END TURN', 0xFFD700, 0xFFAA00);
+
+        const saveLoadY = this.height - (this.isMobile ? 50 : 90);
+        const saveLoadWidth = this.isMobile ? 60 : 95;
+        const saveLoadHeight = this.isMobile ? 35 : 40;
+        this.elements.saveBtn = this.createEnhancedButton(
+            this.isMobile ? 10 : 50, saveLoadY, saveLoadWidth, saveLoadHeight, 'SAVE', 0x4CAF50, 0x388E3C);
+        this.elements.loadBtn = this.createEnhancedButton(
+            this.isMobile ? 80 : 155, saveLoadY, saveLoadWidth, saveLoadHeight, 'LOAD', 0x2196F3, 0x1976D2);
 
         // Minimap panel - positioned above production panel
-        this.panels.minimap = this.scene.add.container(this.x + 10, 390);
-        this.minimapScale = 3; // 3px per tile for better visibility
+        const minimapY = this.isMobile ? 390 : 390;
+        this.panels.minimap = this.scene.add.container(this.x + 10, minimapY);
+        this.minimapScale = this.isMobile ? 2 : 3; // Smaller minimap on mobile
 
         // Production panel (hidden by default) - positioned below minimap, above buttons
-        this.panels.production = this.scene.add.container(this.x + 10, 520);
+        const prodY = this.isMobile ? 450 : 520;
+        this.panels.production = this.scene.add.container(this.x + 10, prodY);
         this.panels.production.setVisible(false);
 
         // Event listeners
@@ -309,16 +326,21 @@ export class UIController {
         this.panels.production.removeAll(true);
         this.panels.production.setVisible(true);
 
+        const titleSize = this.isMobile ? '10px' : '12px';
         const title = this.scene.add.text(0, 0, 'PRODUCTION:', {
-            fontFamily: 'Press Start 2P', fontSize: '12px', color: '#FFFFFF'
+            fontFamily: 'Press Start 2P', fontSize: titleSize, color: '#FFFFFF'
         });
         this.panels.production.add(title);
 
         const options = city.getProductionOptions();
+        const btnWidth = this.isMobile ? 130 : 280;
+        const btnHeight = this.isMobile ? 30 : 40;
+        const spacing = this.isMobile ? 35 : 45;
+
         options.forEach((opt, idx) => {
-            const y = 30 + idx * 45;
+            const y = 25 + idx * spacing;
             const canAfford = player.gold >= opt.cost;
-            const btn = this.createProductionButton(0, y, 280, 40, opt, canAfford);
+            const btn = this.createProductionButton(0, y, btnWidth, btnHeight, opt, canAfford);
             this.panels.production.add(btn.container);
 
             if (canAfford) {
@@ -340,8 +362,13 @@ export class UIController {
         bg.lineStyle(2, 0xFFFFFF, 1);
         bg.strokeRect(0, 0, w, h);
 
-        const label = this.scene.add.text(w / 2, h / 2, `${opt.name} - ${opt.cost}g`, {
-            fontFamily: 'Press Start 2P', fontSize: '10px', color: '#FFFFFF'
+        const labelSize = this.isMobile ? '9px' : '10px';
+        // Shorter text on mobile
+        const btnText = this.isMobile && opt.name.length > 8
+            ? `${opt.name.substring(0, 6)}.. ${opt.cost}g`
+            : `${opt.name} - ${opt.cost}g`;
+        const label = this.scene.add.text(w / 2, h / 2, btnText, {
+            fontFamily: 'Press Start 2P', fontSize: labelSize, color: '#FFFFFF'
         }).setOrigin(0.5, 0.5);
 
         container.add([bg, label]);
