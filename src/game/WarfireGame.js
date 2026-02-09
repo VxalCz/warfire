@@ -55,7 +55,12 @@ export class WarfireGame {
         this.setupNeutralCities(mapWidth, mapHeight);
         this.setupRuins(mapWidth, mapHeight);
 
-        this.ui = new UIController(this.scene, VIEWPORT_WIDTH, 0, CONFIG.UI_WIDTH, VIEWPORT_HEIGHT);
+        // UI position: desktop = right sidebar, mobile = bottom panel
+        const uiX = CONFIG.IS_MOBILE ? 0 : VIEWPORT_WIDTH;
+        const uiY = CONFIG.IS_MOBILE ? VIEWPORT_HEIGHT : 0;
+        const uiWidth = CONFIG.IS_MOBILE ? GAME_WIDTH : CONFIG.UI_WIDTH;
+        const uiHeight = CONFIG.IS_MOBILE ? CONFIG.UI_HEIGHT : VIEWPORT_HEIGHT;
+        this.ui = new UIController(this.scene, uiX, uiY, uiWidth, uiHeight);
         this.ui.initialize();
 
         // Setup minimap click handler

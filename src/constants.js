@@ -6,15 +6,15 @@ const isMobile = typeof window !== 'undefined' &&
 const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1600;
 const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 900;
 
-// On mobile use full screen, on desktop use fixed size
-const gameWidth = isMobile ? screenWidth : 1600;
-const gameHeight = isMobile ? screenHeight : 960;
+// Layout: Desktop = sidebar right, Mobile = panel bottom
+const MOBILE_UI_HEIGHT = Math.min(200, screenHeight * 0.25); // Bottom panel height on mobile
 
 export const CONFIG = {
     TILE_SIZE: 64,
     MAP_WIDTH: 20,
     MAP_HEIGHT: 15,
-    UI_WIDTH: isMobile ? Math.min(150, screenWidth * 0.25) : 300,
+    UI_WIDTH: 300,  // Desktop only
+    UI_HEIGHT: MOBILE_UI_HEIGHT, // Mobile only
     MAX_PLAYERS: 4,
     STARTING_GOLD: 50,
     STARTING_UNITS: { HERO: 1, LIGHT_INFANTRY: 2 },
@@ -22,13 +22,14 @@ export const CONFIG = {
     IS_MOBILE: isMobile
 };
 
-// Viewport size - responsive based on screen
-export const VIEWPORT_WIDTH = isMobile ? (screenWidth - CONFIG.UI_WIDTH) : (20 * CONFIG.TILE_SIZE);
-export const VIEWPORT_HEIGHT = isMobile ? screenHeight : (15 * CONFIG.TILE_SIZE);
+// Viewport size - on mobile: full width, height minus bottom panel
+// On desktop: fixed size with sidebar
+export const VIEWPORT_WIDTH = isMobile ? screenWidth : (20 * CONFIG.TILE_SIZE);
+export const VIEWPORT_HEIGHT = isMobile ? (screenHeight - MOBILE_UI_HEIGHT) : (15 * CONFIG.TILE_SIZE);
 
 // Total game window
-export const GAME_WIDTH = gameWidth;
-export const GAME_HEIGHT = gameHeight;
+export const GAME_WIDTH = isMobile ? screenWidth : (VIEWPORT_WIDTH + CONFIG.UI_WIDTH);
+export const GAME_HEIGHT = screenHeight;
 
 export const COLORS = {
     players: [0x3B5DC9, 0xEF476F, 0x06D6A0, 0xFFD23F],
