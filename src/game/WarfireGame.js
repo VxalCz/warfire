@@ -946,14 +946,20 @@ export class WarfireGame {
             this.isDragging = false;
         });
 
-        // Pinch zoom for mobile
+        // Pinch zoom for mobile - track multiple pointers
+        this.activePointers = [];
+
         this.scene.input.on('pointerdown', (pointer) => {
+            // Add pointer to active list if not already there
+            if (!this.activePointers.includes(pointer)) {
+                this.activePointers.push(pointer);
+            }
+
             // Check if we have two pointers (multi-touch)
-            const pointers = this.scene.input.getActivePointers();
-            if (pointers.length >= 2) {
+            if (this.activePointers.length >= 2) {
                 this.isDragging = false; // Cancel drag when pinching starts
-                const p1 = pointers[0];
-                const p2 = pointers[1];
+                const p1 = this.activePointers[0];
+                const p2 = this.activePointers[1];
 
                 // Calculate initial distance and center
                 const dx = p2.x - p1.x;
@@ -968,11 +974,15 @@ export class WarfireGame {
         });
 
         this.scene.input.on('pointermove', (pointer) => {
-            const pointers = this.scene.input.getActivePointers();
+            // Update pointer position in our tracking
+            const idx = this.activePointers.indexOf(pointer);
+            if (idx >= 0) {
+                this.activePointers[idx] = pointer;
+            }
 
-            if (pointers.length >= 2) {
-                const p1 = pointers[0];
-                const p2 = pointers[1];
+            if (this.activePointers.length >= 2) {
+                const p1 = this.activePointers[0];
+                const p2 = this.activePointers[1];
 
                 // Calculate current distance
                 const dx = p2.x - p1.x;
@@ -1006,8 +1016,16 @@ export class WarfireGame {
             }
         });
 
-        this.scene.input.on('pointerup', () => {
-            this.pinchDistance = 0;
+        this.scene.input.on('pointerup', (pointer) => {
+            // Remove pointer from active list
+            const idx = this.activePointers.indexOf(pointer);
+            if (idx >= 0) {
+                this.activePointers.splice(idx, 1);
+            }
+
+            if (this.activePointers.length < 2) {
+                this.pinchDistance = 0;
+            }
         });
 
         // Mouse wheel zoom for desktop

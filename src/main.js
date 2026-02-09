@@ -16,6 +16,9 @@ const config = {
         autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
         expandParent: true
     },
+    input: {
+        activePointers: 2
+    },
     physics: {
         default: 'arcade',
         arcade: {
