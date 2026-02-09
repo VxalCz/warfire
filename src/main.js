@@ -13,7 +13,8 @@ const config = {
     scene: [MenuScene, GameScene],
     scale: {
         mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+        expandParent: true
     },
     physics: {
         default: 'arcade',
