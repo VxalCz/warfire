@@ -930,7 +930,9 @@ export class WarfireGame {
 
             // If didn't drag much, treat as click
             if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
-                const tile = this.renderer.screenToTile(pointer.x, pointer.y);
+                // Use dragStart position (where click started) not current pointer position
+                // This ensures we click on the tile where user originally clicked
+                const tile = this.renderer.screenToTile(this.dragStart.x, this.dragStart.y);
                 if (this.map.isValid(tile.x, tile.y)) {
                     this.handleTileClick(tile.x, tile.y);
                 }
@@ -1022,28 +1024,48 @@ export class WarfireGame {
             return;
         }
 
+        // Handle unit actions based on phase
         if (this.state.selectedEntity instanceof Unit) {
             const unit = this.state.selectedEntity;
-            if (!unit.hasMoved) {
-                const reachable = MovementSystem.getReachableTiles(unit, this.map);
-                const target = reachable.find(t => t.x === x && t.y === y);
 
-                if (target) {
-                    if (target.isEnemy) {
+            // Phase 1: SELECTED - unit hasn't moved, can move or attack
+            if (this.state.phase === GameState.PHASES.SELECTED && !unit.hasMoved) {
+                const reachable = MovementSystem.getReachableTiles(unit, this.map);
+                const moveTarget = reachable.find(t => t.x === x && t.y === y);
+
+                if (moveTarget) {
+                    if (moveTarget.isEnemy) {
+                        // Attack adjacent enemy
                         const enemyStack = this.map.getStack(x, y);
                         if (enemyStack) this.performAttack(unit, enemyStack);
                     } else {
+                        // Move to empty tile
                         this.moveUnit(unit, x, y);
                     }
                     return;
                 }
 
-                // Ranged attack check
-                const dist = Utils.manhattanDistance(unit.x, unit.y, x, y);
-                if (dist <= unit.range && dist > 0 && !unit.hasAttacked) {
+                // Check for ranged attack target (not adjacent but in range)
+                // Use Chebyshev distance for attacks (8 directions including diagonals)
+                const dist = Utils.chebyshevDistance(unit.x, unit.y, x, y);
+                if (dist <= unit.range && dist > 1 && !unit.hasAttacked) {
                     const enemyStack = this.map.getStack(x, y);
                     if (enemyStack && enemyStack.owner !== unit.owner) {
                         this.performAttack(unit, enemyStack, true);
+                        return;
+                    }
+                }
+            }
+
+            // Phase 2: MOVED - unit has moved, can only attack
+            if (this.state.phase === GameState.PHASES.MOVED && !unit.hasAttacked) {
+                // Use Chebyshev distance for attacks (8 directions including diagonals)
+                const dist = Utils.chebyshevDistance(unit.x, unit.y, x, y);
+                if (dist <= unit.range && dist > 0) {
+                    const enemyStack = this.map.getStack(x, y);
+                    if (enemyStack && enemyStack.owner !== unit.owner) {
+                        const isRanged = dist > 1;
+                        this.performAttack(unit, enemyStack, isRanged);
                         return;
                     }
                 }
@@ -1070,21 +1092,17 @@ export class WarfireGame {
         this.state.transition(GameState.PHASES.SELECTED);
         this.ui.hideProduction();
 
+        // Get movement targets
         const reachable = MovementSystem.getReachableTiles(unit, this.map);
 
-        // Add ranged attack targets
-        if (unit.range > 1 && !unit.hasAttacked) {
-            for (let y = 0; y < this.map.height; y++) {
-                for (let x = 0; x < this.map.width; x++) {
-                    const dist = Utils.manhattanDistance(unit.x, unit.y, x, y);
-                    if (dist <= unit.range && dist > 0) {
-                        const targetStack = this.map.getStack(x, y);
-                        if (targetStack && targetStack.owner !== unit.owner) {
-                            if (!reachable.find(r => r.x === x && r.y === y)) {
-                                reachable.push({ x, y, isRanged: true, isEnemy: true });
-                            }
-                        }
-                    }
+        // For ranged units (range > 1), show attack targets from current position
+        // Melee units (range = 1) must move adjacent first, then attack
+        if (!unit.hasAttacked && unit.range > 1) {
+            const attackTargets = MovementSystem.getAttackTargets(unit, this.map);
+            // Add attack targets that aren't already in reachable (movement targets)
+            for (const target of attackTargets) {
+                if (!reachable.find(r => r.x === target.x && r.y === target.y)) {
+                    reachable.push(target);
                 }
             }
         }
@@ -1092,6 +1110,14 @@ export class WarfireGame {
         this.renderer.highlightTiles(reachable);
         this.renderer.renderUnits(this.map.units, unit);
         this.updateUI();
+    }
+
+    /**
+     * Show only attack targets for a unit that has moved
+     */
+    showAttackTargets(unit) {
+        const targets = MovementSystem.getAttackTargets(unit, this.map);
+        this.renderer.highlightTiles(targets);
     }
 
     selectCity(city) {
@@ -1139,9 +1165,17 @@ export class WarfireGame {
             }
         }
 
-        this.deselect();
         this.renderer.renderMap(this.map);
         this.renderer.renderUnits(this.map.units);
+
+        // After movement, check if unit can still attack
+        if (!unit.hasAttacked) {
+            this.state.transition(GameState.PHASES.MOVED);
+            this.showAttackTargets(unit);
+            this.updateUI();
+        } else {
+            this.deselect();
+        }
     }
 
     performAttack(attacker, defenderStack, isRanged = false) {

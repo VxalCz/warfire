@@ -148,103 +148,69 @@ export class AISystem {
      * Handle a single unit's turn
      */
     async handleSingleUnit(unit, player) {
-        const reachable = MovementSystem.getReachableTiles(unit, this.map);
+        // Get available targets from current position (no move required)
+        const currentAttackTargets = MovementSystem.getAttackTargets(unit, this.map);
 
-        // Find best attack target
-        const attackTarget = this.findBestAttackTarget(unit, reachable, player);
-
-        if (attackTarget && !unit.hasAttacked) {
-            // Attack!
-            if (attackTarget.requiresMove) {
-                // Move first, then attack
-                this.game.moveUnit(unit, attackTarget.moveX, attackTarget.moveY);
-                await this.delay(300);
+        // Find best attack target that doesn't require movement
+        let bestCurrentAttack = null;
+        if (currentAttackTargets.length > 0 && !unit.hasAttacked) {
+            let bestScore = -Infinity;
+            for (const target of currentAttackTargets) {
+                const enemyStack = this.map.getStack(target.x, target.y);
+                if (enemyStack) {
+                    const score = this.evaluateAttackTarget(unit, enemyStack, target.x, target.y);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestCurrentAttack = { target, enemyStack, score };
+                    }
+                }
             }
+        }
 
-            const enemyStack = this.map.getStack(attackTarget.targetX, attackTarget.targetY);
-            if (enemyStack) {
-                const isRanged = Utils.manhattanDistance(unit.x, unit.y, attackTarget.targetX, attackTarget.targetY) > 1;
-                this.game.performAttack(unit, enemyStack, isRanged);
-                await this.delay(400);
-            }
+        // Decide: attack from current position OR move then attack
+        if (bestCurrentAttack && !unit.hasAttacked) {
+            // Attack without moving
+            const isRanged = Utils.chebyshevDistance(unit.x, unit.y, bestCurrentAttack.target.x, bestCurrentAttack.target.y) > 1;
+            this.game.performAttack(unit, bestCurrentAttack.enemyStack, isRanged);
+            await this.delay(400);
             return;
         }
 
-        // No attack target - move strategically
+        // No good attack from current position - try to move and attack
         if (!unit.hasMoved) {
+            const reachable = MovementSystem.getReachableTiles(unit, this.map);
             const moveTarget = this.findBestMoveTarget(unit, reachable, player);
+
             if (moveTarget) {
+                // Move to target position
                 this.game.moveUnit(unit, moveTarget.x, moveTarget.y);
                 await this.delay(300);
 
-                // Try to attack after moving
-                const newReachable = MovementSystem.getReachableTiles(unit, this.map);
-                const newAttack = this.findBestAttackTarget(unit, newReachable, player);
-                if (newAttack && !unit.hasAttacked) {
-                    const enemyStack = this.map.getStack(newAttack.targetX, newAttack.targetY);
-                    if (enemyStack) {
-                        this.game.performAttack(unit, enemyStack, false);
+                // After moving, check for attack targets from new position
+                if (!unit.hasAttacked) {
+                    const newAttackTargets = MovementSystem.getAttackTargets(unit, this.map);
+                    let bestPostMoveAttack = null;
+                    let bestScore = -Infinity;
+
+                    for (const target of newAttackTargets) {
+                        const enemyStack = this.map.getStack(target.x, target.y);
+                        if (enemyStack) {
+                            const score = this.evaluateAttackTarget(unit, enemyStack, target.x, target.y);
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestPostMoveAttack = { target, enemyStack };
+                            }
+                        }
+                    }
+
+                    if (bestPostMoveAttack) {
+                        const isRanged = Utils.chebyshevDistance(unit.x, unit.y, bestPostMoveAttack.target.x, bestPostMoveAttack.target.y) > 1;
+                        this.game.performAttack(unit, bestPostMoveAttack.enemyStack, isRanged);
                         await this.delay(400);
                     }
                 }
             }
         }
-    }
-
-    /**
-     * Find the best attack target for a unit
-     */
-    findBestAttackTarget(unit, reachable, player) {
-        const targets = [];
-
-        // Check melee attacks (adjacent after move)
-        for (const tile of reachable) {
-            if (tile.isEnemy) {
-                const enemyStack = this.map.getStack(tile.x, tile.y);
-                if (enemyStack) {
-                    const score = this.evaluateAttackTarget(unit, enemyStack, tile.x, tile.y);
-                    targets.push({
-                        targetX: tile.x,
-                        targetY: tile.y,
-                        moveX: tile.x,
-                        moveY: tile.y,
-                        requiresMove: tile.cost > 0,
-                        score,
-                        isRanged: false
-                    });
-                }
-            }
-        }
-
-        // Check ranged attacks
-        if (unit.range > 1 && !unit.hasAttacked) {
-            for (let y = 0; y < this.map.height; y++) {
-                for (let x = 0; x < this.map.width; x++) {
-                    const dist = Utils.manhattanDistance(unit.x, unit.y, x, y);
-                    if (dist <= unit.range && dist > 0) {
-                        const enemyStack = this.map.getStack(x, y);
-                        if (enemyStack && enemyStack.owner !== unit.owner) {
-                            const score = this.evaluateAttackTarget(unit, enemyStack, x, y) * 0.9; // Slight penalty for ranged
-                            targets.push({
-                                targetX: x,
-                                targetY: y,
-                                moveX: unit.x,
-                                moveY: unit.y,
-                                requiresMove: false,
-                                score,
-                                isRanged: true
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        if (targets.length === 0) return null;
-
-        // Sort by score descending
-        targets.sort((a, b) => b.score - a.score);
-        return targets[0];
     }
 
     /**
@@ -271,13 +237,6 @@ export class AISystem {
         const damage = CombatSystem.calculateDamage(unit, enemy, terrainBonus);
         if (damage >= enemy.hp) {
             score += 50; // Kill bonus
-        }
-
-        // Consider counter-attack damage
-        const returnDamage = Math.ceil(damage / 2);
-        if (returnDamage >= unit.hp) {
-            score -= 100; // Don't suicide unless it's a hero
-            if (enemy.isHero) score += 50;
         }
 
         // City capture bonus

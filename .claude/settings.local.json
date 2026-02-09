@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(npm run build)",
-      "Bash(ls -la *.md)"
+      "Bash(ls -la *.md)",
+      "Bash(git config user.name)",
+      "Bash(git config user.email)",
+      "Bash(git add .github/workflows/deploy.yml)",
+      "Bash(git commit -m \"Add GitHub Pages deployment workflow\")",
+      "Bash(git push origin master)",
+      "Bash(git commit -m \"Fix GitHub Pages deployment workflow\")",
+      "Bash(git add vite.config.js)",
+      "Bash(git commit -m \"Add Vite config with correct base path for GitHub Pages\")",
+      "Bash(git add -A)"
     ]
   }
 }

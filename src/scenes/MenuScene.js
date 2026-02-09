@@ -96,7 +96,7 @@ export class MenuScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         const sizes = [
-            { label: 'Tiny (12x10)', width: 12, height: 10 },
+            { label: 'Tiny (5x5)', width: 5, height: 5 },
             { label: 'Small (15x12)', width: 15, height: 12 },
             { label: 'Medium (20x15)', width: 20, height: 15 },
             { label: 'Large (30x22)', width: 30, height: 22 },

@@ -236,7 +236,14 @@ export class UIController {
         }
 
         const artifactNames = unit.artifacts.map(a => a.name).join(', ') || 'None';
-        const status = unit.hasMoved ? '[MOVED]' : unit.hasAttacked ? '[ATTACKED]' : '[READY]';
+        let status;
+        if (unit.hasAttacked) {
+            status = '[ATTACKED]';
+        } else if (unit.hasMoved) {
+            status = '[MOVED]';
+        } else {
+            status = '[READY]';
+        }
 
         this.elements.selectedInfo.setText(
             `${unit.name} ${status}\n` +

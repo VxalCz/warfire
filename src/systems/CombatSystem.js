@@ -7,7 +7,8 @@ export class CombatSystem {
     }
 
     static canAttack(attacker, defenderX, defenderY, gameMap) {
-        const distance = Utils.manhattanDistance(attacker.x, attacker.y, defenderX, defenderY);
+        // Use Chebyshev distance for attacks (allows diagonal attacks)
+        const distance = Utils.chebyshevDistance(attacker.x, attacker.y, defenderX, defenderY);
         return distance <= attacker.range && !attacker.hasAttacked;
     }
 
@@ -17,11 +18,10 @@ export class CombatSystem {
 
         const terrainBonus = gameMap.getDefenseBonus(defender.x, defender.y);
         const damageToDefender = this.calculateDamage(attacker, defender, terrainBonus);
-        const damageToAttacker = Math.ceil(damageToDefender / 2);
 
         const results = {
             attacker: { unit: attacker, damageDealt: damageToDefender, died: false },
-            defender: { unit: defender, damageDealt: damageToAttacker, died: false },
+            defender: { unit: defender, damageDealt: 0, died: false },
             cityCaptured: null
         };
 
@@ -31,14 +31,9 @@ export class CombatSystem {
             gameMap.removeUnit(defender);
         }
 
-        // Attacker takes return damage
-        results.attacker.died = attacker.takeDamage(damageToAttacker);
-        if (results.attacker.died) {
-            gameMap.removeUnit(attacker);
-        } else {
-            attacker.hasMoved = true;
-            attacker.hasAttacked = true;
-        }
+        // Mark attacker as having attacked
+        attacker.hasMoved = true;
+        attacker.hasAttacked = true;
 
         // Check city capture
         const city = gameMap.getCity(defender.x, defender.y);
