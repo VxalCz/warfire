@@ -530,8 +530,9 @@ export class UIController {
      * @param {Player[]} players
      * @param {number} cameraX
      * @param {number} cameraY
+     * @param {number} zoom - current camera zoom level (default 1.0)
      */
-    updateMinimap(map, players, cameraX, cameraY) {
+    updateMinimap(map, players, cameraX, cameraY, zoom = 1.0) {
         this.panels.minimap.removeAll(true);
 
         const miniW = map.width * this.minimapScale;
@@ -609,11 +610,12 @@ export class UIController {
             });
         });
 
-        // Viewport rectangle
+        // Viewport rectangle - accounts for zoom (higher zoom = smaller visible area)
         const viewX = (cameraX / CONFIG.TILE_SIZE) * this.minimapScale;
         const viewY = (cameraY / CONFIG.TILE_SIZE) * this.minimapScale;
-        const viewW = (VIEWPORT_WIDTH / CONFIG.TILE_SIZE) * this.minimapScale;
-        const viewH = (VIEWPORT_HEIGHT / CONFIG.TILE_SIZE) * this.minimapScale;
+        // When zoomed in, visible area is smaller
+        const viewW = (VIEWPORT_WIDTH / CONFIG.TILE_SIZE / zoom) * this.minimapScale;
+        const viewH = (VIEWPORT_HEIGHT / CONFIG.TILE_SIZE / zoom) * this.minimapScale;
 
         const viewRect = this.scene.add.graphics();
         viewRect.lineStyle(2, 0xFFFFFF, 1);

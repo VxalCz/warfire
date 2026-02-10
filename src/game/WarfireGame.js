@@ -1851,7 +1851,7 @@ export class WarfireGame {
         this.ui.updateSelected(this.state.selectedEntity, null, isBlockaded);
 
         // Update minimap
-        this.ui.updateMinimap(this.map, this.players, this.renderer.camera.x, this.renderer.camera.y);
+        this.ui.updateMinimap(this.map, this.players, this.renderer.camera.x, this.renderer.camera.y, this.renderer.zoom);
     }
 
     /**

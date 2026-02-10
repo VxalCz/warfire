@@ -34,14 +34,47 @@ export class RenderSystem {
         // UI container - stays fixed on screen
         this.containers.ui = this.scene.add.container(0, 0);
         this.containers.ui.setDepth(1000); // Always on top
+
+        // Create mask to clip map to viewport (not under UI)
+        this.createViewportMask();
+    }
+
+    /**
+     * Create a mask to clip game world to viewport area only
+     * Prevents map from being visible under UI sidebar
+     */
+    createViewportMask() {
+        // Create graphics for mask shape (viewport area)
+        const maskGraphics = this.scene.make.graphics();
+        maskGraphics.fillStyle(0xffffff);
+        maskGraphics.fillRect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+
+        // Create geometry mask from graphics
+        const mask = maskGraphics.createGeometryMask();
+
+        // Apply mask to all world containers
+        this.containers.map.setMask(mask);
+        this.containers.highlights.setMask(mask);
+        this.containers.units.setMask(mask);
+        this.containers.hover.setMask(mask);
+
+        // Store mask for cleanup
+        this.viewportMask = mask;
     }
 
     /**
      * Set camera position with bounds checking
+     * Accounts for zoom - keeps map within the viewport area
      */
     setCamera(x, y) {
-        const maxX = Math.max(0, this.mapWidth - VIEWPORT_WIDTH);
-        const maxY = Math.max(0, this.mapHeight - VIEWPORT_HEIGHT);
+        // Calculate effective map dimensions with zoom
+        const zoomedMapWidth = this.mapWidth * this.zoom;
+        const zoomedMapHeight = this.mapHeight * this.zoom;
+
+        // Max camera position: when the right/bottom edge of zoomed map
+        // aligns with the right/bottom edge of viewport
+        const maxX = Math.max(0, zoomedMapWidth - VIEWPORT_WIDTH) / this.zoom;
+        const maxY = Math.max(0, zoomedMapHeight - VIEWPORT_HEIGHT) / this.zoom;
 
         this.camera.x = Phaser.Math.Clamp(x, 0, maxX);
         this.camera.y = Phaser.Math.Clamp(y, 0, maxY);
@@ -60,8 +93,13 @@ export class RenderSystem {
      * Center camera on a tile
      */
     centerOnTile(tx, ty) {
-        const x = tx * CONFIG.TILE_SIZE - VIEWPORT_WIDTH / 2 + CONFIG.TILE_SIZE / 2;
-        const y = ty * CONFIG.TILE_SIZE - VIEWPORT_HEIGHT / 2 + CONFIG.TILE_SIZE / 2;
+        const tileWorldX = tx * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+        const tileWorldY = ty * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+
+        // Calculate camera position to center the tile in viewport
+        const x = tileWorldX - VIEWPORT_WIDTH / (2 * this.zoom);
+        const y = tileWorldY - VIEWPORT_HEIGHT / (2 * this.zoom);
+
         this.setCamera(x, y);
     }
 
@@ -101,9 +139,17 @@ export class RenderSystem {
         const worldY = (screenY + this.camera.y * oldZoom) / oldZoom;
 
         // Adjust camera to keep the point under cursor/fingers stable
-        this.camera.x = (worldX * newZoom - screenX) / newZoom;
-        this.camera.y = (worldY * newZoom - screenY) / newZoom;
+        let newX = (worldX * newZoom - screenX) / newZoom;
+        let newY = (worldY * newZoom - screenY) / newZoom;
 
+        // Apply bounds checking with new zoom level
+        const zoomedMapWidth = this.mapWidth * newZoom;
+        const zoomedMapHeight = this.mapHeight * newZoom;
+        const maxX = Math.max(0, zoomedMapWidth - VIEWPORT_WIDTH) / newZoom;
+        const maxY = Math.max(0, zoomedMapHeight - VIEWPORT_HEIGHT) / newZoom;
+
+        this.camera.x = Phaser.Math.Clamp(newX, 0, maxX);
+        this.camera.y = Phaser.Math.Clamp(newY, 0, maxY);
         this.zoom = newZoom;
         this.updateCameraTransform();
     }
