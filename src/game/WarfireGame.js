@@ -1669,9 +1669,41 @@ export class WarfireGame {
             const oldPlayer = this.players[oldOwner];
             const idx = oldPlayer.cities.indexOf(city);
             if (idx > -1) oldPlayer.cities.splice(idx, 1);
+
+            // Check if old player lost all cities (defeated)
+            if (oldPlayer.cities.length === 0) {
+                this.defeatPlayer(oldPlayer);
+            }
         }
 
         this.checkWinCondition();
+    }
+
+    /**
+     * Defeat a player - remove all their units and mark as defeated
+     */
+    defeatPlayer(player) {
+        if (!player.isAlive) return;
+
+        // Remove all player's units from the map
+        const unitsToRemove = this.map.units.filter(u => u.owner === player.id);
+        unitsToRemove.forEach(unit => {
+            this.map.removeUnit(unit);
+        });
+
+        // Clear from player's unit list
+        player.units = [];
+
+        // Mark as defeated
+        player.defeat();
+
+        // Show defeat message
+        this.ui.showMessage(`${player.name} DEFEATED!`);
+        Events.emit('player:defeated', { player });
+
+        // Re-render to show removed units
+        this.renderer.renderMap(this.map, this.getBlockadedCities());
+        this.renderer.renderUnits(this.map.units);
     }
 
     produceUnit(city, unitType) {
@@ -1794,7 +1826,8 @@ export class WarfireGame {
             const hasCities = player.cities.length > 0;
 
             if (!hasHero && !hasCities) {
-                player.defeat();
+                // Player has no hero and no cities - defeat them and remove units
+                this.defeatPlayer(player);
             }
         });
 
