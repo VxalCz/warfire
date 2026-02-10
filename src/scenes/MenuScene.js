@@ -18,6 +18,7 @@ export class MenuScene extends Phaser.Scene {
                 { name: 'Player 4', isAI: true }
             ]
         };
+        this.isMobile = CONFIG.IS_MOBILE;
     }
 
     create() {
@@ -61,61 +62,74 @@ export class MenuScene extends Phaser.Scene {
     }
 
     createTitle() {
-        const title = this.add.text(GAME_WIDTH / 2, 50, 'WARFIRE', {
-            fontSize: '64px',
+        const titleSize = this.isMobile ? '36px' : '64px';
+        const subtitleSize = this.isMobile ? '14px' : '20px';
+        const titleY = this.isMobile ? 25 : 50;
+        const subtitleY = this.isMobile ? 55 : 100;
+
+        // Glow effect (behind)
+        const glow = this.add.text(GAME_WIDTH / 2, titleY, 'WARFIRE', {
+            fontSize: titleSize,
+            fontFamily: 'Courier New, monospace',
+            fontStyle: 'bold',
+            color: '#FFD23F'
+        }).setOrigin(0.5);
+        glow.setAlpha(0.3);
+        glow.setScale(this.isMobile ? 1.05 : 1.1);
+
+        // Main title
+        this.add.text(GAME_WIDTH / 2, titleY, 'WARFIRE', {
+            fontSize: titleSize,
             fontFamily: 'Courier New, monospace',
             fontStyle: 'bold',
             color: '#FFD23F'
         }).setOrigin(0.5);
 
-        // Glow effect
-        this.add.text(GAME_WIDTH / 2, 50, 'WARFIRE', {
-            fontSize: '64px',
-            fontFamily: 'Courier New, monospace',
-            fontStyle: 'bold',
-            color: '#FFD23F',
-            alpha: 0.3
-        }).setOrigin(0.5).setScale(1.1);
-
-        this.add.text(GAME_WIDTH / 2, 100, 'Turn-Based Strategy', {
-            fontSize: '20px',
+        // Subtitle
+        this.add.text(GAME_WIDTH / 2, subtitleY, 'Turn-Based Strategy', {
+            fontSize: subtitleSize,
             fontFamily: 'Courier New, monospace',
             color: '#94a3b8'
         }).setOrigin(0.5);
     }
 
     createMapSizeSection() {
-        const startY = 140;
+        const startY = this.isMobile ? 75 : 140;
         const centerX = GAME_WIDTH / 2;
+        const titleSize = this.isMobile ? '14px' : '18px';
+        const btnWidth = this.isMobile ? 100 : 160;
+        const btnSpacing = this.isMobile ? 105 : 175;
+        const rowHeight = this.isMobile ? 28 : 32;
 
         this.add.text(centerX, startY, 'MAP SIZE', {
-            fontSize: '18px',
+            fontSize: titleSize,
             fontFamily: 'Courier New, monospace',
             fontStyle: 'bold',
             color: '#60a5fa'
         }).setOrigin(0.5);
 
         const sizes = [
-            { label: 'Tiny (5x5)', width: 5, height: 5 },
-            { label: 'Small (15x12)', width: 15, height: 12 },
-            { label: 'Medium (20x15)', width: 20, height: 15 },
-            { label: 'Large (30x22)', width: 30, height: 22 },
-            { label: 'Huge (40x30)', width: 40, height: 30 },
-            { label: 'Giant (50x40)', width: 50, height: 40 }
+            { label: this.isMobile ? 'Tiny' : 'Tiny (5x5)', width: 5, height: 5 },
+            { label: this.isMobile ? 'Small' : 'Small (15x12)', width: 15, height: 12 },
+            { label: this.isMobile ? 'Medium' : 'Medium (20x15)', width: 20, height: 15 },
+            { label: this.isMobile ? 'Large' : 'Large (30x22)', width: 30, height: 22 },
+            { label: this.isMobile ? 'Huge' : 'Huge (40x30)', width: 40, height: 30 },
+            { label: this.isMobile ? 'Giant' : 'Giant (50x40)', width: 50, height: 40 }
         ];
 
         let selectedIndex = 2; // Medium by default
 
         // Layout in 3 columns for nice 3x2 grid
-        const container = this.add.container(centerX, startY + 35);
+        const containerY = startY + (this.isMobile ? 22 : 35);
+        const container = this.add.container(centerX, containerY);
 
         this.mapSizeButtons = sizes.map((size, index) => {
             const col = index % 3;
             const row = Math.floor(index / 3);
-            const x = (col - 1) * 175; // -175, 0, 175
-            const y = row * 32;
+            const x = (col - 1) * btnSpacing;
+            const y = row * rowHeight;
 
-            const button = this.createButton(x, y, size.label, 160, () => {
+            const button = this.createButton(x, y, size.label, btnWidth, () => {
                 this.settings.mapWidth = size.width;
                 this.settings.mapHeight = size.height;
                 this.updateMapSizeSelection(index);
@@ -136,17 +150,18 @@ export class MenuScene extends Phaser.Scene {
     }
 
     createPlayerCountSection() {
-        const startY = 260;
+        const startY = this.isMobile ? 155 : 260;
         const centerX = GAME_WIDTH / 2;
+        const titleSize = this.isMobile ? '14px' : '18px';
 
-        this.add.text(centerX, startY, 'NUMBER OF PLAYERS', {
-            fontSize: '18px',
+        this.add.text(centerX, startY, this.isMobile ? 'PLAYERS' : 'NUMBER OF PLAYERS', {
+            fontSize: titleSize,
             fontFamily: 'Courier New, monospace',
             fontStyle: 'bold',
             color: '#60a5fa'
         }).setOrigin(0.5);
 
-        const container = this.add.container(centerX, startY + 40);
+        const container = this.add.container(centerX, startY + (this.isMobile ? 22 : 40));
 
         this.playerCountButtons = [2, 3, 4].map((count, index) => {
             const button = this.createButton((index - 1) * 70, 0, count.toString(), 60, () => {
@@ -170,21 +185,24 @@ export class MenuScene extends Phaser.Scene {
     }
 
     createPlayerSettingsSection() {
-        const startY = 330;
+        const startY = this.isMobile ? 200 : 330;
         const centerX = GAME_WIDTH / 2;
+        const titleSize = this.isMobile ? '14px' : '18px';
 
         this.add.text(centerX, startY, 'PLAYER SETTINGS', {
-            fontSize: '18px',
+            fontSize: titleSize,
             fontFamily: 'Courier New, monospace',
             fontStyle: 'bold',
             color: '#60a5fa'
         }).setOrigin(0.5);
 
-        this.playerSettingsContainer = this.add.container(centerX, startY + 50);
+        const containerY = startY + (this.isMobile ? 22 : 50);
+        this.playerSettingsContainer = this.add.container(centerX, containerY);
         this.playerSettingItems = [];
 
+        const rowHeight = this.isMobile ? 32 : 50;
         for (let i = 0; i < 4; i++) {
-            const item = this.createPlayerSettingItem(0, i * 50, i);
+            const item = this.createPlayerSettingItem(0, i * rowHeight, i);
             this.playerSettingsContainer.add(item.container);
             this.playerSettingItems.push(item);
         }
@@ -197,24 +215,33 @@ export class MenuScene extends Phaser.Scene {
         const color = COLORS.players[playerIndex];
         const hexColor = '#' + color.toString(16).padStart(6, '0');
 
+        const boxSize = this.isMobile ? 16 : 24;
+        const labelSize = this.isMobile ? '12px' : '16px';
+        const btnWidth = this.isMobile ? 70 : 100;
+        const btnHeight = this.isMobile ? 22 : 30;
+        const btnTextSize = this.isMobile ? '11px' : '14px';
+        const colorBoxX = this.isMobile ? -80 : -120;
+        const labelX = this.isMobile ? -65 : -95;
+        const btnX = this.isMobile ? 40 : 60;
+
         // Color indicator
-        const colorBox = this.add.rectangle(-120, 0, 24, 24, color)
+        const colorBox = this.add.rectangle(colorBoxX, 0, boxSize, boxSize, color)
             .setStrokeStyle(2, 0xffffff);
         container.add(colorBox);
 
         // Player label
-        const label = this.add.text(-95, 0, `P${playerIndex + 1}:`, {
-            fontSize: '16px',
+        const label = this.add.text(labelX, 0, `P${playerIndex + 1}:`, {
+            fontSize: labelSize,
             fontFamily: 'Courier New, monospace',
             color: hexColor
         }).setOrigin(0, 0.5);
         container.add(label);
 
         // AI toggle button
-        const aiButtonBg = this.add.rectangle(60, 0, 100, 30, 0x2d3748)
+        const aiButtonBg = this.add.rectangle(btnX, 0, btnWidth, btnHeight, 0x2d3748)
             .setInteractive({ useHandCursor: true });
-        const aiButtonText = this.add.text(60, 0, 'AI', {
-            fontSize: '14px',
+        const aiButtonText = this.add.text(btnX, 0, 'AI', {
+            fontSize: btnTextSize,
             fontFamily: 'Courier New, monospace',
             color: '#94a3b8'
         }).setOrigin(0.5);
@@ -278,7 +305,10 @@ export class MenuScene extends Phaser.Scene {
     }
 
     createStartButton() {
-        const button = this.createButton(GAME_WIDTH / 2, GAME_HEIGHT - 80, 'START GAME', 200, () => {
+        const btnY = this.isMobile ? GAME_HEIGHT - 30 : GAME_HEIGHT - 80;
+        const btnWidth = this.isMobile ? 140 : 200;
+        const btnText = this.isMobile ? 'START' : 'START GAME';
+        const button = this.createButton(GAME_WIDTH / 2, btnY, btnText, btnWidth, () => {
             this.startGame();
         });
 
@@ -296,12 +326,14 @@ export class MenuScene extends Phaser.Scene {
 
     createButton(x, y, text, width, callback) {
         const container = this.add.container(x, y);
+        const btnHeight = this.isMobile ? 26 : 32;
+        const fontSize = this.isMobile ? '12px' : '14px';
 
-        const background = this.add.rectangle(0, 0, width, 32, 0x2d3748)
+        const background = this.add.rectangle(0, 0, width, btnHeight, 0x2d3748)
             .setInteractive({ useHandCursor: true });
 
         const textObj = this.add.text(0, 0, text, {
-            fontSize: '14px',
+            fontSize: fontSize,
             fontFamily: 'Courier New, monospace',
             color: '#94a3b8'
         }).setOrigin(0.5);
@@ -323,6 +355,10 @@ export class MenuScene extends Phaser.Scene {
     }
 
     createHelpText() {
+        if (this.isMobile) {
+            // No help text on mobile to save space
+            return;
+        }
         this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 25, 'Click AI/HUMAN buttons to toggle player type', {
             fontSize: '12px',
             fontFamily: 'Courier New, monospace',
