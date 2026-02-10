@@ -60,6 +60,12 @@ export class AISystem {
      */
     async handleProduction(player) {
         for (const city of player.cities) {
+            // Check if city is blockaded - cannot produce if enemy adjacent
+            if (this.map.isCityBlockaded(city, player.id)) {
+                Events.emit('ai:blockaded', { player, city });
+                continue; // Skip this city, it's under siege
+            }
+
             // Decide what to build based on needs
             const unitType = this.decideProduction(player);
             const cost = UNIT_DEFINITIONS[unitType].cost;
@@ -256,6 +262,11 @@ export class AISystem {
 
         const moves = reachable
             .filter(t => !t.isEnemy) // Don't move into enemies
+            .filter(t => {
+                // 1 unit per tile limit: can't stop on a tile with a friendly unit
+                const existingUnit = this.map.getUnitsAt(t.x, t.y).find(u => u.owner === player.id && u.hp > 0);
+                return !existingUnit;
+            })
             .map(tile => {
                 let score = this.evaluateMoveTarget(unit, tile.x, tile.y, player);
                 // Prefer closer moves (less wasted movement)
@@ -336,8 +347,14 @@ export class AISystem {
 
         const reachable = MovementSystem.getReachableTiles(hero, this.map);
 
+        // Filter out tiles occupied by friendly units (1 unit per tile limit)
+        const validMoves = reachable.filter(t => {
+            const existingUnit = this.map.getUnitsAt(t.x, t.y).find(u => u.owner === player.id && u.hp > 0);
+            return !existingUnit;
+        });
+
         // Priority 1: Explore ruins
-        const ruin = reachable.find(t => this.map.getRuin(t.x, t.y));
+        const ruin = validMoves.find(t => this.map.getRuin(t.x, t.y));
         if (ruin) {
             this.game.moveUnit(hero, ruin.x, ruin.y);
             await this.delay(300);
@@ -345,7 +362,7 @@ export class AISystem {
         }
 
         // Priority 2: Capture undefended cities
-        const cityTile = reachable.find(t => {
+        const cityTile = validMoves.find(t => {
             const city = this.map.getCity(t.x, t.y);
             if (!city || city.owner === player.id) return false;
             const defenders = this.map.getUnitsAt(t.x, t.y).filter(u => u.owner !== player.id && u.hp > 0);

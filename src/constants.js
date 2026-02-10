@@ -32,8 +32,16 @@ export const GAME_WIDTH = isMobile ? screenWidth : (VIEWPORT_WIDTH + CONFIG.UI_W
 export const GAME_HEIGHT = screenHeight;
 
 export const COLORS = {
-    players: [0x3B5DC9, 0xEF476F, 0x06D6A0, 0xFFD23F],
+    playerSchemes: [
+        { primary: 0x3B5DC9, secondary: 0xFFD700, dark: 0x1E3A8A, accent: 0x87CEEB }, // Blue + Gold
+        { primary: 0xEF476F, secondary: 0x06D6A0, dark: 0x7D1A30, accent: 0xFFAAAA }, // Red + Teal
+        { primary: 0x06D6A0, secondary: 0xFFD23F, dark: 0x047857, accent: 0x90EE90 }, // Teal + Gold
+        { primary: 0xFFD23F, secondary: 0x9B59B6, dark: 0xB7950B, accent: 0xFFECB3 }  // Gold + Purple
+    ],
+    get players() { return this.playerSchemes.map(s => s.primary); },
     neutral: 0x808080,
+    neutralSecondary: 0xA0A0A0,
+    neutralDark: 0x606060,
     plains: 0x7EC850,
     forest: 0x306230,
     mountains: 0x9CA3AF,

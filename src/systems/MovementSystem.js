@@ -88,6 +88,16 @@ export class MovementSystem {
                     return;
                 }
 
+                // Check if trying to stop on a friendly unit (1 unit per tile limit)
+                // Units can pass through friendly tiles but cannot stop there
+                if (targetStack && targetStack.owner === unit.owner) {
+                    // Can pass through but not stop - don't add to result as a valid stop
+                    // Still need to continue BFS for paths through this tile
+                    visited.set(key, totalCost);
+                    queue.push({ x: nx, y: ny, cost: totalCost });
+                    return;
+                }
+
                 // If entering Zone of Control, mark it
                 const isEnteringZOC = !startsInZOC && this.isInZoneOfControl(nx, ny, unit, gameMap);
 

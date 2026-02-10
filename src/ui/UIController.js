@@ -101,7 +101,7 @@ export class UIController {
             this.panels.selectedHeader = this.createPanelHeader(10, 130, 'Selected Unit');
             this.elements.selectedInfo = this.createText(15, 155, 'None', { fontSize: '10px', lineSpacing: 5 });
 
-            this.panels.stackHeader = this.createPanelHeader(10, 240, 'Stack');
+            this.panels.stackHeader = this.createPanelHeader(10, 240, 'Rules');
             this.elements.stackInfo = this.createText(15, 265, '', { fontSize: '9px', lineSpacing: 3 });
 
             this.panels.tileHeader = this.createPanelHeader(10, 320, 'Tile Info');
@@ -277,56 +277,74 @@ export class UIController {
         this.elements.turnText.setText(`Turn: ${turn}`);
     }
 
-    updateSelected(unit, stack) {
-        if (!unit) {
+    updateSelected(entity, selectedUnit, isBlockaded = false) {
+        if (!entity) {
             this.elements.selectedInfo.setText(this.isMobile ? 'Select unit' : 'None');
             if (!this.isMobile) {
-                this.elements.stackInfo.setText('');
+                this.elements.stackInfo.setText('1 unit per tile');
             }
             return;
         }
 
-        const artifactNames = unit.artifacts.map(a => a.name).join(', ') || 'None';
-        let status;
-        if (unit.hasAttacked) {
-            status = '[A]';
-        } else if (unit.hasMoved) {
-            status = '[M]';
-        } else {
-            status = '[R]';
+        // Check if entity is a unit
+        if (entity.type && entity.hp !== undefined) {
+            const unit = entity;
+            const artifactNames = unit.artifacts.map(a => a.name).join(', ') || 'None';
+            let status;
+            if (unit.hasAttacked) {
+                status = '[A]';
+            } else if (unit.hasMoved) {
+                status = '[M]';
+            } else {
+                status = '[R]';
+            }
+
+            if (this.isMobile) {
+                // Compact mobile display
+                let text = `${unit.name} ${status}\n`;
+                text += `HP:${unit.hp}/${unit.maxHp} ATK:${unit.effectiveAttack}\n`;
+                text += `Artifacts:${artifactNames.length > 10 ? artifactNames.substring(0, 8) + '..' : artifactNames}`;
+                this.elements.selectedInfo.setText(text);
+            } else {
+                // Desktop full display
+                this.elements.selectedInfo.setText(
+                    `${unit.name} ${status}\n` +
+                    `HP: ${unit.hp}/${unit.maxHp}\n` +
+                    `ATK: ${unit.effectiveAttack} DEF: ${unit.effectiveDefense}\n` +
+                    `MOV: ${unit.effectiveMovement} RNG: ${unit.range}\n` +
+                    `Artifacts: ${artifactNames}`
+                );
+
+                // Stack info panel now shows helper text
+                this.elements.stackInfo.setText('(1 unit per tile)');
+            }
+            return;
         }
 
+        // Entity is a city
+        const city = entity;
         if (this.isMobile) {
-            // Compact mobile display
-            let text = `${unit.name} ${status}\n`;
-            text += `HP:${unit.hp}/${unit.maxHp} ATK:${unit.effectiveAttack}\n`;
-            text += `Artifacts:${artifactNames.length > 10 ? artifactNames.substring(0, 8) + '..' : artifactNames}`;
-
-            // Add stack info inline if present
-            if (stack && stack.units.length > 1) {
-                text += `\nStack:${stack.units.length} units`;
+            let text = `${city.size} City\n`;
+            text += `Income: +${city.income}g\n`;
+            if (isBlockaded) {
+                text += '[BLOCKADED!]';
             }
             this.elements.selectedInfo.setText(text);
         } else {
-            // Desktop full display
-            this.elements.selectedInfo.setText(
-                `${unit.name} ${status}\n` +
-                `HP: ${unit.hp}/${unit.maxHp}\n` +
-                `ATK: ${unit.effectiveAttack} DEF: ${unit.effectiveDefense}\n` +
-                `MOV: ${unit.effectiveMovement} RNG: ${unit.range}\n` +
-                `Artifacts: ${artifactNames}`
-            );
-
-            if (stack && stack.units.length > 1) {
-                let text = `${stack.units.length} units:\n`;
-                stack.units.forEach(u => {
-                    const moved = u.hasMoved ? 'M' : '.';
-                    const attacked = u.hasAttacked ? 'A' : '.';
-                    text += `${u.name} HP:${u.hp} [${moved}${attacked}]\n`;
-                });
-                this.elements.stackInfo.setText(text);
+            let text = `${city.size.toUpperCase()} CITY\n`;
+            text += `Income: +${city.income}g/turn\n`;
+            if (isBlockaded) {
+                text += '>>> BLOCKADED! <<<';
             } else {
-                this.elements.stackInfo.setText('');
+                text += 'Production ready';
+            }
+            this.elements.selectedInfo.setText(text);
+
+            // Rules panel shows blockade status
+            if (isBlockaded) {
+                this.elements.stackInfo.setText('City under siege!\nCannot produce units.');
+            } else {
+                this.elements.stackInfo.setText('(1 unit per tile)');
             }
         }
     }

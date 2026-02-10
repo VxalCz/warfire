@@ -11,6 +11,7 @@ export class GameMap {
         this.cities = [];
         this.ruins = [];
         this.units = [];
+        this.decorations = []; // Visual-only decorative elements
         this.generate();
     }
 
@@ -24,6 +25,58 @@ export class GameMap {
         this.addPatches(TERRAIN.FOREST, 0.2);
         this.addPatches(TERRAIN.MOUNTAINS, 0.15);
         this.addPatches(TERRAIN.WATER, 0.05);
+        this.generateDecorations();
+    }
+
+    generateDecorations() {
+        // Add decorative elements that don't affect gameplay
+        const seededRandom = (seed) => {
+            let x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        };
+
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                const terrain = this.terrain[y][x];
+                const seed = x * 37 + y * 73;
+
+                // Skip if there's a city or ruin here
+                if (this.getCity(x, y) || this.getRuin(x, y)) continue;
+
+                if (terrain === TERRAIN.PLAINS) {
+                    // Rocks on plains (10% chance)
+                    if (seededRandom(seed) < 0.1) {
+                        this.decorations.push({ x, y, type: 'rock', variant: Math.floor(seededRandom(seed + 1) * 3) });
+                    }
+                    // Flower patches (8% chance)
+                    else if (seededRandom(seed + 2) < 0.08) {
+                        this.decorations.push({ x, y, type: 'flowers', variant: Math.floor(seededRandom(seed + 3) * 4) });
+                    }
+                    // Small hillock (5% chance)
+                    else if (seededRandom(seed + 4) < 0.05) {
+                        this.decorations.push({ x, y, type: 'hillock', variant: 0 });
+                    }
+                } else if (terrain === TERRAIN.FOREST) {
+                    // Fallen log (5% chance)
+                    if (seededRandom(seed + 5) < 0.05) {
+                        this.decorations.push({ x, y, type: 'log', variant: Math.floor(seededRandom(seed + 6) * 2) });
+                    }
+                    // Mushroom cluster (4% chance)
+                    else if (seededRandom(seed + 7) < 0.04) {
+                        this.decorations.push({ x, y, type: 'mushrooms', variant: Math.floor(seededRandom(seed + 8) * 3) });
+                    }
+                } else if (terrain === TERRAIN.WATER) {
+                    // Water lily (8% chance)
+                    if (seededRandom(seed + 9) < 0.08) {
+                        this.decorations.push({ x, y, type: 'lily', variant: Math.floor(seededRandom(seed + 10) * 2) });
+                    }
+                    // Small rock in water (3% chance)
+                    else if (seededRandom(seed + 11) < 0.03) {
+                        this.decorations.push({ x, y, type: 'water_rock', variant: 0 });
+                    }
+                }
+            }
+        }
     }
 
     addPatches(type, ratio) {
@@ -132,6 +185,23 @@ export class GameMap {
                 }
             });
         });
+    }
+
+    /**
+     * Check if a city is blockaded (adjacent to enemy unit)
+     * Returns true if city cannot produce due to enemy presence
+     */
+    isCityBlockaded(city, ownerId) {
+        const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+        for (const [dx, dy] of directions) {
+            const nx = city.x + dx;
+            const ny = city.y + dy;
+            const adjacentUnit = this.getUnitsAt(nx, ny).find(u => u.hp > 0 && u.owner !== ownerId);
+            if (adjacentUnit) {
+                return true; // Enemy adjacent - city is blockaded
+            }
+        }
+        return false;
     }
 
     serialize() {

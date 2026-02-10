@@ -11,7 +11,25 @@
       "Bash(git commit -m \"Fix GitHub Pages deployment workflow\")",
       "Bash(git add vite.config.js)",
       "Bash(git commit -m \"Add Vite config with correct base path for GitHub Pages\")",
-      "Bash(git add -A)"
+      "Bash(git add -A)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nMobile optimization and gameplay improvements\n\n- Add responsive scaling with Phaser Scale FIT mode\n- Update CSS for mobile touch prevention \\(no zoom, no text select\\)\n- Various gameplay improvements and bug fixes\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add index.html src/main.js)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix mobile centering issues\n\n- Use 100dvh for proper mobile viewport height\n- Remove flex centering, let Phaser handle centering\n- Add expandParent to scale config\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix vertical centering on mobile\n\n- Use align-items: flex-start to align canvas to top\n- Change Phaser center to CENTER_HORIZONTALLY only\n- Canvas now fills from top instead of center\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add src/systems/RenderSystem.js src/game/WarfireGame.js)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd pinch zoom and mouse wheel zoom\n\n- Add zoom support to RenderSystem with zoomAt for point zooming\n- Add pinch zoom for mobile \\(2-finger gesture\\)\n- Add mouse wheel zoom for desktop\n- Update screenToTile to account for zoom level\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add src/main.js src/game/WarfireGame.js)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix pinch zoom for mobile\n\n- Add activePointers: 2 to Phaser config for multi-touch support\n- Fix pointer tracking using manual array instead of non-existent getActivePointers\\(\\)\n- Track pointer down/move/up events properly for pinch detection\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add src/constants.js)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nIncrease viewport size on mobile devices\n\n- Add mobile detection via user agent\n- Use smaller UI width on mobile \\(150px vs 300px\\)\n- Increase viewport size on mobile to fill more screen space\n- Use window.innerWidth/Height for mobile viewport calculation\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add src/constants.js src/ui/UIController.js)",
+      "Bash(git commit -m \"Improve mobile UI layout and readability\n\n- Adjust viewport calculation to fit mobile screen minus UI\n- Increase UI font sizes on mobile for better readability\n- Resize and reposition buttons for mobile \\(smaller, fits 150px UI\\)\n- Smaller minimap on mobile \\(2px scale vs 3px\\)\n- Smaller production buttons with shorter text on mobile\n- Adjust production panel position for mobile\")",
+      "Bash(git commit -m \"Revert mobile viewport changes - fix sizing issue\")",
+      "Bash(git add src/main.js index.html)",
+      "Bash(git commit -m \"Use ENVELOP scale mode to fill mobile screen\")",
+      "Bash(git add src/main.js src/constants.js src/ui/UIController.js)",
+      "Bash(git commit -m \"Fix mobile scaling - use RESIZE mode with dynamic dimensions\")",
+      "Bash(npm run dev)"
     ]
   }
 }
