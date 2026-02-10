@@ -30,10 +30,17 @@ export class WarfireGame {
         Events.on('ui:save', () => this.saveGame());
         Events.on('ui:load', () => this.loadGame());
         Events.on('ui:produce', ({ city, unitType }) => this.produceUnit(city, unitType));
+        Events.on('ui:togglePause', () => this.togglePause());
         Events.on('player:defeated', ({ player }) => this.ui.showMessage(`${player.name} defeated!`));
         Events.on('city:captured', ({ city, newOwner }) => {
             const player = this.players[newOwner];
             this.ui.showMessage(`${player.name} captured city!`);
+        });
+        Events.on('ai:turnEnded', () => {
+            // In spectator mode, check if we should auto-continue
+            if (this.isSpectatorMode && !this.aiPaused) {
+                this.scheduleNextTurn();
+            }
         });
     }
 
@@ -41,10 +48,17 @@ export class WarfireGame {
         // Use config from menu or defaults
         const mapWidth = this.gameConfig?.mapWidth || CONFIG.MAP_WIDTH;
         const mapHeight = this.gameConfig?.mapHeight || CONFIG.MAP_HEIGHT;
+        const numCities = this.gameConfig?.numCities;
+        const numRuins = this.gameConfig?.numRuins;
         const playerConfigs = this.gameConfig?.players || [
             { name: 'Player 1', isAI: false },
             { name: 'Player 2', isAI: true }
         ];
+
+        // Check if all players are AI (spectator mode)
+        this.isSpectatorMode = playerConfigs.every(p => p.isAI);
+        this.aiPaused = false;
+        this.nextTurnTimer = null;
 
         this.renderer.initialize();
         this.createTextures();
@@ -52,8 +66,8 @@ export class WarfireGame {
         this.map = new GameMap(mapWidth, mapHeight);
         this.createPlayers(playerConfigs);
         this.setupInitialPositions(mapWidth, mapHeight);
-        this.setupNeutralCities(mapWidth, mapHeight);
-        this.setupRuins(mapWidth, mapHeight);
+        this.setupNeutralCities(mapWidth, mapHeight, numCities);
+        this.setupRuins(mapWidth, mapHeight, numRuins);
 
         // UI position: desktop = right sidebar, mobile = bottom panel
         const uiX = CONFIG.IS_MOBILE ? 0 : VIEWPORT_WIDTH;
@@ -63,11 +77,24 @@ export class WarfireGame {
         this.ui = new UIController(this.scene, uiX, uiY, uiWidth, uiHeight);
         this.ui.initialize();
 
+        // Setup spectator mode in UI
+        this.ui.setSpectatorMode(this.isSpectatorMode);
+
+        // In spectator mode, disable input - purely for watching
+        if (this.isSpectatorMode) {
+            this.scene.input.enabled = false;
+        }
+
         // Setup minimap click handler
         this.ui.setMinimapClickCallback((x, y) => {
             this.renderer.centerOnTile(x, y);
             this.updateUI(); // Update minimap viewport
         });
+
+        // In spectator mode, allow camera control via minimap
+        if (this.isSpectatorMode) {
+            this.setupSpectatorCameraControls();
+        }
 
         // Initialize AI system
         this.ai = new AISystem(this);
@@ -1141,10 +1168,16 @@ export class WarfireGame {
         });
     }
 
-    setupNeutralCities(mapWidth, mapHeight) {
-        // Scale number of cities with map size
-        const areaRatio = (mapWidth * mapHeight) / (CONFIG.MAP_WIDTH * CONFIG.MAP_HEIGHT);
-        const numNeutral = Math.floor(Utils.randomInt(4, 6) * areaRatio);
+    setupNeutralCities(mapWidth, mapHeight, numCities = null) {
+        // Use provided value or scale with map size
+        let numNeutral;
+        if (numCities !== undefined && numCities !== null) {
+            numNeutral = numCities;
+        } else {
+            const areaRatio = (mapWidth * mapHeight) / (CONFIG.MAP_WIDTH * CONFIG.MAP_HEIGHT);
+            numNeutral = Math.floor(Utils.randomInt(4, 6) * areaRatio);
+        }
+
         const sizes = ['small', 'small', 'medium', 'medium', 'large'];
 
         for (let i = 0; i < numNeutral; i++) {
@@ -1162,12 +1195,17 @@ export class WarfireGame {
         }
     }
 
-    setupRuins(mapWidth, mapHeight) {
-        // Scale number of ruins with map size
-        const areaRatio = (mapWidth * mapHeight) / (CONFIG.MAP_WIDTH * CONFIG.MAP_HEIGHT);
-        const numRuins = Math.floor(Utils.randomInt(5, 8) * areaRatio);
+    setupRuins(mapWidth, mapHeight, numRuins = null) {
+        // Use provided value or scale with map size
+        let actualNumRuins;
+        if (numRuins !== undefined && numRuins !== null) {
+            actualNumRuins = numRuins;
+        } else {
+            const areaRatio = (mapWidth * mapHeight) / (CONFIG.MAP_WIDTH * CONFIG.MAP_HEIGHT);
+            actualNumRuins = Math.floor(Utils.randomInt(5, 8) * areaRatio);
+        }
 
-        for (let i = 0; i < numRuins; i++) {
+        for (let i = 0; i < actualNumRuins; i++) {
             let x, y, attempts = 0;
             do {
                 x = Utils.randomInt(2, mapWidth - 3);
@@ -1179,6 +1217,48 @@ export class WarfireGame {
                 this.map.addRuin(x, y);
             }
         }
+    }
+
+    setupSpectatorCameraControls() {
+        // Allow camera drag and zoom in spectator mode (but no unit interaction)
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let cameraStart = { x: 0, y: 0 };
+
+        // Pointer down - start drag
+        this.scene.input.on('pointerdown', (pointer) => {
+            if (!this.renderer.isInViewport(pointer.x, pointer.y)) return;
+            isDragging = true;
+            dragStart = { x: pointer.x, y: pointer.y };
+            cameraStart = { x: this.renderer.camera.x, y: this.renderer.camera.y };
+        });
+
+        // Pointer move - drag camera
+        this.scene.input.on('pointermove', (pointer) => {
+            if (!isDragging) return;
+            const dx = dragStart.x - pointer.x;
+            const dy = dragStart.y - pointer.y;
+            this.renderer.setCamera(cameraStart.x + dx, cameraStart.y + dy);
+            this.updateUI();
+        });
+
+        // Pointer up - end drag
+        this.scene.input.on('pointerup', () => {
+            isDragging = false;
+        });
+
+        // Mouse wheel for zoom
+        this.scene.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
+            if (!this.renderer.isInViewport(pointer.x, pointer.y)) return;
+            const zoomDelta = deltaY > 0 ? -0.1 : 0.1;
+            const newZoom = Utils.clamp(
+                this.renderer.zoom + zoomDelta,
+                this.renderer.minZoom,
+                this.renderer.maxZoom
+            );
+            this.renderer.setZoom(newZoom);
+            this.updateUI();
+        });
     }
 
     setupInput() {
@@ -1804,18 +1884,76 @@ export class WarfireGame {
     checkAndStartAITurn() {
         const currentPlayer = this.players[this.state.currentPlayerIndex];
         if (currentPlayer.isAI && currentPlayer.isAlive && this.ai) {
-            // Disable input during AI turn
+            // In spectator mode, respect pause state
+            if (this.isSpectatorMode && this.aiPaused) {
+                return; // Don't start AI turn while paused
+            }
+
+            // Disable input during AI turn (safety)
             this.scene.input.enabled = false;
             this.ui.showMessage(`${currentPlayer.name} (AI) is thinking...`, 2000);
 
             // Start AI turn after a short delay
             setTimeout(() => {
                 this.ai.playTurn().then(() => {
-                    // Re-enable input after AI turn
-                    this.scene.input.enabled = true;
+                    // Only re-enable input if NOT in spectator mode
+                    // In spectator mode, input stays disabled (pure watching)
+                    if (!this.isSpectatorMode) {
+                        this.scene.input.enabled = true;
+                    }
                 });
             }, 1000);
         }
+    }
+
+    /**
+     * Toggle pause in spectator mode (all AI game)
+     */
+    togglePause() {
+        if (!this.isSpectatorMode) return;
+
+        this.aiPaused = !this.aiPaused;
+        this.ui.setPaused(this.aiPaused);
+
+        if (this.aiPaused) {
+            // Cancel any pending auto-turn
+            if (this.nextTurnTimer) {
+                clearTimeout(this.nextTurnTimer);
+                this.nextTurnTimer = null;
+            }
+            this.ui.showMessage('PAUSED - Click RESUME to continue', 2000);
+        } else {
+            // Resume - check if we should start AI turn immediately
+            this.ui.showMessage('RESUMED', 1000);
+            const currentPlayer = this.players[this.state.currentPlayerIndex];
+            if (currentPlayer.isAI && currentPlayer.isAlive && !this.ai.isRunning) {
+                // In spectator mode, input stays disabled - AI plays automatically
+                this.checkAndStartAITurn();
+            }
+        }
+    }
+
+    /**
+     * Schedule next turn in spectator mode with delay
+     */
+    scheduleNextTurn() {
+        if (!this.isSpectatorMode || this.aiPaused) return;
+
+        // Clear any existing timer
+        if (this.nextTurnTimer) {
+            clearTimeout(this.nextTurnTimer);
+        }
+
+        // Schedule next turn with 2 second delay for viewing
+        this.nextTurnTimer = setTimeout(() => {
+            this.nextTurnTimer = null;
+            const currentPlayer = this.players[this.state.currentPlayerIndex];
+            // Only auto-continue if current player is AI and alive and not already running
+            if (currentPlayer.isAI && currentPlayer.isAlive && !this.ai.isRunning) {
+                this.endTurn();
+                // endTurn calls checkAndStartAITurn which starts next AI
+            }
+        }, 2000);
     }
 
     checkWinCondition() {

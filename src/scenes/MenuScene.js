@@ -25,6 +25,7 @@ export class MenuScene extends Phaser.Scene {
         this.createBackground();
         this.createTitle();
         this.createMapSizeSection();
+        this.createCityRuinSection();
         this.createPlayerCountSection();
         this.createPlayerSettingsSection();
         this.createStartButton();
@@ -117,7 +118,16 @@ export class MenuScene extends Phaser.Scene {
             { label: this.isMobile ? 'Giant' : 'Giant (50x40)', width: 50, height: 40 }
         ];
 
-        let selectedIndex = 2; // Medium by default
+        // Calculate defaults based on map size
+        const calculateDefaults = (width, height) => {
+            const area = width * height;
+            const baseArea = 20 * 15; // Medium map area
+            const ratio = area / baseArea;
+            return {
+                numCities: Math.max(2, Math.floor(5 * ratio)),
+                numRuins: Math.max(2, Math.floor(6 * ratio))
+            };
+        };
 
         // Layout in 3 columns for nice 3x2 grid
         const containerY = startY + (this.isMobile ? 22 : 35);
@@ -129,28 +139,172 @@ export class MenuScene extends Phaser.Scene {
             const x = (col - 1) * btnSpacing;
             const y = row * rowHeight;
 
-            const button = this.createButton(x, y, size.label, btnWidth, () => {
+            const button = this.createSelectableButton(x, y, size.label, btnWidth, () => {
                 this.settings.mapWidth = size.width;
                 this.settings.mapHeight = size.height;
+                // Update city/ruin defaults when map size changes
+                const defaults = calculateDefaults(size.width, size.height);
+                this.settings.numCities = defaults.numCities;
+                this.settings.numRuins = defaults.numRuins;
                 this.updateMapSizeSelection(index);
+                this.updateCityRuinDisplay();
             });
             container.add(button.container);
             return { ...button, index, size };
         });
 
-        this.updateMapSizeSelection(selectedIndex);
+        // Initialize with defaults for medium map
+        const initialDefaults = calculateDefaults(20, 15);
+        this.settings.numCities = initialDefaults.numCities;
+        this.settings.numRuins = initialDefaults.numRuins;
+        this.selectedMapIndex = 2; // Medium by default
+        this.updateMapSizeSelection(this.selectedMapIndex);
     }
 
     updateMapSizeSelection(selectedIndex) {
+        this.selectedMapIndex = selectedIndex;
         this.mapSizeButtons.forEach((btn, idx) => {
             const isSelected = idx === selectedIndex;
-            btn.background.setFillStyle(isSelected ? 0x3B5DC9 : 0x2d3748);
-            btn.text.setColor(isSelected ? '#ffffff' : '#94a3b8');
+            btn.setSelected(isSelected);
         });
     }
 
+    createCityRuinSection() {
+        const startY = this.isMobile ? 145 : 240;
+        const centerX = GAME_WIDTH / 2;
+        const titleSize = this.isMobile ? '14px' : '18px';
+
+        this.add.text(centerX, startY, this.isMobile ? 'CITIES & RUINS' : 'NEUTRAL CITIES & RUINS', {
+            fontSize: titleSize,
+            fontFamily: 'Courier New, monospace',
+            fontStyle: 'bold',
+            color: '#60a5fa'
+        }).setOrigin(0.5);
+
+        // Calculate max values based on current map size
+        const getMaxValues = () => {
+            const mapArea = this.settings.mapWidth * this.settings.mapHeight;
+            const maxCities = Math.floor(mapArea / 15); // At least 15 tiles per city
+            const maxRuins = Math.floor(mapArea / 20); // At least 20 tiles per ruin
+            return { maxCities, maxRuins };
+        };
+
+        const containerY = startY + (this.isMobile ? 25 : 40);
+        const container = this.add.container(centerX, containerY);
+
+        // Cities control
+        const citiesLabel = this.add.text(-80, 0, 'Cities:', {
+            fontSize: this.isMobile ? '12px' : '14px',
+            fontFamily: 'Courier New, monospace',
+            color: '#94a3b8'
+        }).setOrigin(0, 0.5);
+        container.add(citiesLabel);
+
+        // Cities value display (clickable)
+        this.citiesValueBg = this.add.rectangle(-10, 0, 50, 28, 0x2d3748)
+            .setInteractive({ useHandCursor: true });
+        this.citiesValueText = this.add.text(-10, 0, this.settings.numCities.toString(), {
+            fontSize: this.isMobile ? '14px' : '16px',
+            fontFamily: 'Courier New, monospace',
+            color: '#ffffff'
+        }).setOrigin(0.5);
+        container.add(this.citiesValueBg);
+        container.add(this.citiesValueText);
+
+        // Cities - button
+        const citiesMinusBtn = this.createSmallButton(-45, 0, '-', () => {
+            if (this.settings.numCities > 0) {
+                this.settings.numCities--;
+                this.updateCityRuinDisplay();
+            }
+        });
+        container.add(citiesMinusBtn.container);
+
+        // Cities + button
+        const citiesPlusBtn = this.createSmallButton(25, 0, '+', () => {
+            const { maxCities } = getMaxValues();
+            if (this.settings.numCities < maxCities) {
+                this.settings.numCities++;
+                this.updateCityRuinDisplay();
+            }
+        });
+        container.add(citiesPlusBtn.container);
+
+        // Ruins control
+        const ruinsLabel = this.add.text(60, 0, 'Ruins:', {
+            fontSize: this.isMobile ? '12px' : '14px',
+            fontFamily: 'Courier New, monospace',
+            color: '#94a3b8'
+        }).setOrigin(0, 0.5);
+        container.add(ruinsLabel);
+
+        // Ruins value display
+        this.ruinsValueBg = this.add.rectangle(130, 0, 50, 28, 0x2d3748)
+            .setInteractive({ useHandCursor: true });
+        this.ruinsValueText = this.add.text(130, 0, this.settings.numRuins.toString(), {
+            fontSize: this.isMobile ? '14px' : '16px',
+            fontFamily: 'Courier New, monospace',
+            color: '#ffffff'
+        }).setOrigin(0.5);
+        container.add(this.ruinsValueBg);
+        container.add(this.ruinsValueText);
+
+        // Ruins - button
+        const ruinsMinusBtn = this.createSmallButton(95, 0, '-', () => {
+            if (this.settings.numRuins > 0) {
+                this.settings.numRuins--;
+                this.updateCityRuinDisplay();
+            }
+        });
+        container.add(ruinsMinusBtn.container);
+
+        // Ruins + button
+        const ruinsPlusBtn = this.createSmallButton(165, 0, '+', () => {
+            const { maxRuins } = getMaxValues();
+            if (this.settings.numRuins < maxRuins) {
+                this.settings.numRuins++;
+                this.updateCityRuinDisplay();
+            }
+        });
+        container.add(ruinsPlusBtn.container);
+    }
+
+    createSmallButton(x, y, text, callback) {
+        const container = this.add.container(x, y);
+        const size = 26;
+        const fontSize = this.isMobile ? '14px' : '16px';
+
+        const background = this.add.rectangle(0, 0, size, size, 0x4a5568)
+            .setInteractive({ useHandCursor: true });
+
+        const textObj = this.add.text(0, 0, text, {
+            fontSize: fontSize,
+            fontFamily: 'Courier New, monospace',
+            color: '#ffffff',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
+
+        container.add(background);
+        container.add(textObj);
+
+        background.on('pointerdown', callback);
+        background.on('pointerover', () => {
+            background.setFillStyle(0x6b7280);
+        });
+        background.on('pointerout', () => {
+            background.setFillStyle(0x4a5568);
+        });
+
+        return { container, background, text: textObj };
+    }
+
+    updateCityRuinDisplay() {
+        this.citiesValueText.setText(this.settings.numCities.toString());
+        this.ruinsValueText.setText(this.settings.numRuins.toString());
+    }
+
     createPlayerCountSection() {
-        const startY = this.isMobile ? 155 : 260;
+        const startY = this.isMobile ? 195 : 320;
         const centerX = GAME_WIDTH / 2;
         const titleSize = this.isMobile ? '14px' : '18px';
 
@@ -185,7 +339,7 @@ export class MenuScene extends Phaser.Scene {
     }
 
     createPlayerSettingsSection() {
-        const startY = this.isMobile ? 200 : 330;
+        const startY = this.isMobile ? 240 : 390;
         const centerX = GAME_WIDTH / 2;
         const titleSize = this.isMobile ? '14px' : '18px';
 
@@ -305,7 +459,7 @@ export class MenuScene extends Phaser.Scene {
     }
 
     createStartButton() {
-        const btnY = this.isMobile ? GAME_HEIGHT - 30 : GAME_HEIGHT - 80;
+        const btnY = this.isMobile ? GAME_HEIGHT - 25 : GAME_HEIGHT - 70;
         const btnWidth = this.isMobile ? 140 : 200;
         const btnText = this.isMobile ? 'START' : 'START GAME';
         const button = this.createButton(GAME_WIDTH / 2, btnY, btnText, btnWidth, () => {
@@ -354,6 +508,57 @@ export class MenuScene extends Phaser.Scene {
         return { container, background, text: textObj };
     }
 
+    createSelectableButton(x, y, text, width, callback) {
+        const container = this.add.container(x, y);
+        const btnHeight = this.isMobile ? 26 : 32;
+        const fontSize = this.isMobile ? '12px' : '14px';
+
+        const background = this.add.rectangle(0, 0, width, btnHeight, 0x2d3748)
+            .setInteractive({ useHandCursor: true });
+
+        const textObj = this.add.text(0, 0, text, {
+            fontSize: fontSize,
+            fontFamily: 'Courier New, monospace',
+            color: '#94a3b8'
+        }).setOrigin(0.5);
+
+        container.add(background);
+        container.add(textObj);
+
+        let isSelected = false;
+
+        const updateVisuals = () => {
+            if (isSelected) {
+                background.setFillStyle(0x3B5DC9);
+                textObj.setColor('#ffffff');
+            } else {
+                background.setFillStyle(0x2d3748);
+                textObj.setColor('#94a3b8');
+            }
+        };
+
+        background.on('pointerdown', callback);
+        background.on('pointerover', () => {
+            if (!isSelected) {
+                background.setFillStyle(0x4a5568);
+                textObj.setColor('#ffffff');
+            }
+        });
+        background.on('pointerout', () => {
+            updateVisuals();
+        });
+
+        return {
+            container,
+            background,
+            text: textObj,
+            setSelected: (selected) => {
+                isSelected = selected;
+                updateVisuals();
+            }
+        };
+    }
+
     createHelpText() {
         if (this.isMobile) {
             // No help text on mobile to save space
@@ -374,6 +579,8 @@ export class MenuScene extends Phaser.Scene {
         this.scene.start('GameScene', {
             mapWidth: this.settings.mapWidth,
             mapHeight: this.settings.mapHeight,
+            numCities: this.settings.numCities,
+            numRuins: this.settings.numRuins,
             players: activePlayers
         });
     }

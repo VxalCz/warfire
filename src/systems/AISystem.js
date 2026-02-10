@@ -60,8 +60,10 @@ export class AISystem {
         this.isRunning = false;
         Events.emit('ai:turnEnded', { player });
 
-        // End turn
-        this.game.endTurn();
+        // End turn (unless in spectator mode - scheduler handles that)
+        if (!this.game.isSpectatorMode) {
+            this.game.endTurn();
+        }
     }
 
     /**
@@ -684,7 +686,7 @@ export class AISystem {
             // Check if city is undefended
             const defenders = this.map.getUnitsAt(city.x, city.y).filter(u => u.owner !== player.id && u.hp > 0);
 
-            if (defenders.length === 0 && distAfter < distBefore) {
+            if (defenders.length === 0 && distToCity < distBefore) {
                 score += 35; // Good to approach empty cities
             }
 
@@ -787,6 +789,48 @@ export class AISystem {
             const ruin = this.map.getRuin(x, y);
             if (ruin) {
                 score += 60;
+            }
+        }
+
+        // 8. DEFAULT EXPANSION: If no clear objective, move toward nearest neutral/enemy city
+        // This ensures units don't just sit idle when there's no immediate target
+        if (score <= 0) {
+            let nearestTarget = null;
+            let minDist = Infinity;
+
+            // Find nearest neutral or enemy city
+            for (const city of this.map.cities) {
+                if (city.owner === player.id) continue;
+                const dist = Utils.manhattanDistance(unit.x, unit.y, city.x, city.y);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearestTarget = city;
+                }
+            }
+
+            // Also consider enemy units as targets
+            for (const otherUnit of this.map.units) {
+                if (otherUnit.owner !== player.id && otherUnit.hp > 0) {
+                    const dist = Utils.manhattanDistance(unit.x, unit.y, otherUnit.x, otherUnit.y);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        nearestTarget = otherUnit;
+                    }
+                }
+            }
+
+            if (nearestTarget) {
+                const distBefore = Utils.manhattanDistance(unit.x, unit.y, nearestTarget.x, nearestTarget.y);
+                const distAfter = Utils.manhattanDistance(x, y, nearestTarget.x, nearestTarget.y);
+
+                // Bonus for moving closer to target
+                if (distAfter < distBefore) {
+                    score += 25;
+                }
+                // Extra bonus for being significantly closer
+                if (distBefore - distAfter >= 2) {
+                    score += 15;
+                }
             }
         }
 

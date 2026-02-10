@@ -124,9 +124,40 @@ export class UIController {
         this.panels.production.setVisible(false);
 
         // Event listeners
-        this.elements.endTurnBtn.on('pointerup', () => Events.emit('ui:endTurn'));
+        this.elements.endTurnBtn.on('pointerup', () => {
+            if (this.isSpectatorMode) {
+                Events.emit('ui:togglePause');
+            } else {
+                Events.emit('ui:endTurn');
+            }
+        });
         this.elements.saveBtn.on('pointerup', () => Events.emit('ui:save'));
         this.elements.loadBtn.on('pointerup', () => Events.emit('ui:load'));
+
+        // Spectator mode defaults to false
+        this.isSpectatorMode = false;
+    }
+
+    /**
+     * Set spectator mode - changes End Turn button to Pause
+     */
+    setSpectatorMode(enabled) {
+        this.isSpectatorMode = enabled;
+        const btnLabel = this.elements.endTurnBtn.list.find(obj => obj instanceof Phaser.GameObjects.Text);
+        if (btnLabel) {
+            btnLabel.setText(enabled ? 'PAUSE' : 'END TURN');
+        }
+    }
+
+    /**
+     * Update pause button text (Pause -> Resume -> Pause)
+     */
+    setPaused(isPaused) {
+        if (!this.isSpectatorMode) return;
+        const btnLabel = this.elements.endTurnBtn.list.find(obj => obj instanceof Phaser.GameObjects.Text);
+        if (btnLabel) {
+            btnLabel.setText(isPaused ? 'RESUME' : 'PAUSE');
+        }
     }
 
     /**
