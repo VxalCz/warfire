@@ -47,48 +47,76 @@ export class UIController {
         bg.lineStyle(2, 0xFFD700, 0.5);
         bg.strokeRect(this.x + 8, this.y + 8, this.width - 16, 30);
 
-        // Player info with icons - larger fonts on mobile
-        this.elements.playerText = this.createText(15, 45, 'Player 1', { fontSize: this.fontSize, color: '#FFFFFF' });
-        this.elements.goldText = this.createText(35, 75, '50g', { fontSize: this.smallFont, color: '#FFD700' });
-        this.elements.turnText = this.createText(35, 105, 'Turn 1', { fontSize: this.tinyFont, color: '#AAAAAA' });
+        // Mobile: compact horizontal layout, Desktop: vertical sidebar
+        if (this.isMobile) {
+            // Mobile layout - horizontal flow
+            const col1X = 10;
+            const col2X = Math.floor(this.width * 0.35);
+            const col3X = Math.floor(this.width * 0.65);
 
-        // Icons for gold and turn (text-based)
-        const goldIcon = this.scene.add.text(this.x + 15, this.y + 75, '$', { fontSize: this.smallFont, color: '#FFD700', fontFamily: 'Press Start 2P' });
-        const turnIcon = this.scene.add.text(this.x + 15, this.y + 105, 'T', { fontSize: this.tinyFont, color: '#AAAAAA', fontFamily: 'Press Start 2P' });
+            // Column 1: Player info (compact, single line style)
+            this.elements.playerText = this.createText(col1X, 10, 'Player 1', { fontSize: '12px', color: '#FFFFFF' });
+            this.elements.goldText = this.createText(col1X, 32, '50g', { fontSize: '11px', color: '#FFD700' });
+            this.elements.turnText = this.createText(col1X + 50, 32, 'T1', { fontSize: '11px', color: '#AAAAAA' });
 
-        // Panel sections with decorative headers
-        this.panels.selectedHeader = this.createPanelHeader(10, 130, 'Selected Unit');
-        this.elements.selectedInfo = this.createText(15, 155, 'None', { fontSize: this.isMobile ? '12px' : '10px', lineSpacing: 5 });
+            // Column 2: Selected unit info
+            this.elements.selectedInfo = this.createText(col2X, 10, 'None', { fontSize: '10px', lineSpacing: 2 });
 
-        this.panels.stackHeader = this.createPanelHeader(10, 240, 'Stack');
-        this.elements.stackInfo = this.createText(15, 265, '', { fontSize: this.isMobile ? '11px' : '9px', lineSpacing: 3 });
+            // Column 3: Tile info
+            this.elements.tileInfo = this.createText(col3X, 10, '', { fontSize: '10px', lineSpacing: 2 });
 
-        this.panels.tileHeader = this.createPanelHeader(10, 320, 'Tile Info');
-        this.elements.tileInfo = this.createText(15, 345, '', { fontSize: this.isMobile ? '12px' : '10px', lineSpacing: 4 });
+            // Stack info - hidden on mobile (shown in selected info)
+            this.elements.stackInfo = this.createText(0, 0, '', { fontSize: '9px' });
+            this.elements.stackInfo.setVisible(false);
 
-        // Action buttons - smaller and adjusted for mobile
-        const btnY = this.height - (this.isMobile ? 100 : 150);
-        const btnWidth = this.isMobile ? 130 : 200;
-        const btnHeight = this.isMobile ? 40 : 50;
-        this.elements.endTurnBtn = this.createEnhancedButton(
-            this.isMobile ? 10 : 50, btnY, btnWidth, btnHeight, 'END TURN', 0xFFD700, 0xFFAA00);
+            // Minimap on the right side, above buttons
+            const minimapSize = Math.min(80, this.height - 70);
+            this.panels.minimap = this.scene.add.container(this.width - minimapSize - 10, 10);
+            this.minimapScale = 2;
 
-        const saveLoadY = this.height - (this.isMobile ? 50 : 90);
-        const saveLoadWidth = this.isMobile ? 60 : 95;
-        const saveLoadHeight = this.isMobile ? 35 : 40;
-        this.elements.saveBtn = this.createEnhancedButton(
-            this.isMobile ? 10 : 50, saveLoadY, saveLoadWidth, saveLoadHeight, 'SAVE', 0x4CAF50, 0x388E3C);
-        this.elements.loadBtn = this.createEnhancedButton(
-            this.isMobile ? 80 : 155, saveLoadY, saveLoadWidth, saveLoadHeight, 'LOAD', 0x2196F3, 0x1976D2);
+            // Production panel (hidden by default)
+            this.panels.production = this.scene.add.container(col2X, 10);
 
-        // Minimap panel - positioned above production panel
-        const minimapY = this.isMobile ? 390 : 390;
-        this.panels.minimap = this.scene.add.container(this.x + 10, minimapY);
-        this.minimapScale = this.isMobile ? 2 : 3; // Smaller minimap on mobile
+            // Action buttons at bottom
+            const btnWidth = 100;
+            const btnHeight = 35;
+            const btnY = this.height - 45;
 
-        // Production panel (hidden by default) - positioned below minimap, above buttons
-        const prodY = this.isMobile ? 450 : 520;
-        this.panels.production = this.scene.add.container(this.x + 10, prodY);
+            this.elements.endTurnBtn = this.createEnhancedButton(10, btnY, btnWidth, btnHeight, 'END TURN', 0xFFD700, 0xFFAA00);
+            this.elements.saveBtn = this.createEnhancedButton(120, btnY, 70, btnHeight, 'SAVE', 0x4CAF50, 0x388E3C);
+            this.elements.loadBtn = this.createEnhancedButton(200, btnY, 70, btnHeight, 'LOAD', 0x2196F3, 0x1976D2);
+        } else {
+            // Desktop layout - original vertical sidebar
+            this.elements.playerText = this.createText(15, 45, 'Player 1', { fontSize: this.fontSize, color: '#FFFFFF' });
+            this.elements.goldText = this.createText(35, 75, '50g', { fontSize: this.smallFont, color: '#FFD700' });
+            this.elements.turnText = this.createText(35, 105, 'Turn 1', { fontSize: this.tinyFont, color: '#AAAAAA' });
+
+            const goldIcon = this.scene.add.text(this.x + 15, this.y + 75, '$', { fontSize: this.smallFont, color: '#FFD700', fontFamily: 'Press Start 2P' });
+            const turnIcon = this.scene.add.text(this.x + 15, this.y + 105, 'T', { fontSize: this.tinyFont, color: '#AAAAAA', fontFamily: 'Press Start 2P' });
+
+            this.panels.selectedHeader = this.createPanelHeader(10, 130, 'Selected Unit');
+            this.elements.selectedInfo = this.createText(15, 155, 'None', { fontSize: '10px', lineSpacing: 5 });
+
+            this.panels.stackHeader = this.createPanelHeader(10, 240, 'Stack');
+            this.elements.stackInfo = this.createText(15, 265, '', { fontSize: '9px', lineSpacing: 3 });
+
+            this.panels.tileHeader = this.createPanelHeader(10, 320, 'Tile Info');
+            this.elements.tileInfo = this.createText(15, 345, '', { fontSize: '10px', lineSpacing: 4 });
+
+            const btnY = this.height - 150;
+            const btnWidth = 200;
+            const btnHeight = 50;
+            this.elements.endTurnBtn = this.createEnhancedButton(50, btnY, btnWidth, btnHeight, 'END TURN', 0xFFD700, 0xFFAA00);
+
+            const saveLoadY = this.height - 90;
+            this.elements.saveBtn = this.createEnhancedButton(50, saveLoadY, 95, 40, 'SAVE', 0x4CAF50, 0x388E3C);
+            this.elements.loadBtn = this.createEnhancedButton(155, saveLoadY, 95, 40, 'LOAD', 0x2196F3, 0x1976D2);
+
+            this.panels.minimap = this.scene.add.container(this.x + 10, 390);
+            this.minimapScale = 3;
+
+            this.panels.production = this.scene.add.container(this.x + 10, 520);
+        }
         this.panels.production.setVisible(false);
 
         // Event listeners
@@ -247,39 +275,55 @@ export class UIController {
 
     updateSelected(unit, stack) {
         if (!unit) {
-            this.elements.selectedInfo.setText('None');
-            this.elements.stackInfo.setText('');
+            this.elements.selectedInfo.setText(this.isMobile ? 'Select unit' : 'None');
+            if (!this.isMobile) {
+                this.elements.stackInfo.setText('');
+            }
             return;
         }
 
         const artifactNames = unit.artifacts.map(a => a.name).join(', ') || 'None';
         let status;
         if (unit.hasAttacked) {
-            status = '[ATTACKED]';
+            status = '[A]';
         } else if (unit.hasMoved) {
-            status = '[MOVED]';
+            status = '[M]';
         } else {
-            status = '[READY]';
+            status = '[R]';
         }
 
-        this.elements.selectedInfo.setText(
-            `${unit.name} ${status}\n` +
-            `HP: ${unit.hp}/${unit.maxHp}\n` +
-            `ATK: ${unit.effectiveAttack} DEF: ${unit.effectiveDefense}\n` +
-            `MOV: ${unit.effectiveMovement} RNG: ${unit.range}\n` +
-            `Artifacts: ${artifactNames}`
-        );
+        if (this.isMobile) {
+            // Compact mobile display
+            let text = `${unit.name} ${status}\n`;
+            text += `HP:${unit.hp}/${unit.maxHp} ATK:${unit.effectiveAttack}\n`;
+            text += `Artifacts:${artifactNames.length > 10 ? artifactNames.substring(0, 8) + '..' : artifactNames}`;
 
-        if (stack && stack.units.length > 1) {
-            let text = `${stack.units.length} units:\n`;
-            stack.units.forEach(u => {
-                const moved = u.hasMoved ? 'M' : '.';
-                const attacked = u.hasAttacked ? 'A' : '.';
-                text += `${u.name} HP:${u.hp} [${moved}${attacked}]\n`;
-            });
-            this.elements.stackInfo.setText(text);
+            // Add stack info inline if present
+            if (stack && stack.units.length > 1) {
+                text += `\nStack:${stack.units.length} units`;
+            }
+            this.elements.selectedInfo.setText(text);
         } else {
-            this.elements.stackInfo.setText('');
+            // Desktop full display
+            this.elements.selectedInfo.setText(
+                `${unit.name} ${status}\n` +
+                `HP: ${unit.hp}/${unit.maxHp}\n` +
+                `ATK: ${unit.effectiveAttack} DEF: ${unit.effectiveDefense}\n` +
+                `MOV: ${unit.effectiveMovement} RNG: ${unit.range}\n` +
+                `Artifacts: ${artifactNames}`
+            );
+
+            if (stack && stack.units.length > 1) {
+                let text = `${stack.units.length} units:\n`;
+                stack.units.forEach(u => {
+                    const moved = u.hasMoved ? 'M' : '.';
+                    const attacked = u.hasAttacked ? 'A' : '.';
+                    text += `${u.name} HP:${u.hp} [${moved}${attacked}]\n`;
+                });
+                this.elements.stackInfo.setText(text);
+            } else {
+                this.elements.stackInfo.setText('');
+            }
         }
     }
 
@@ -296,23 +340,38 @@ export class UIController {
         const city = map.getCity(x, y);
         const ruin = map.getRuin(x, y);
 
-        let text = `${terrainName}`;
-        if (defenseBonus > 0) {
-            text += ` (DEF +${defenseBonus})`;
-        }
-
-        if (city) {
-            text += `\nCity: ${city.size}`;
-            if (city.owner !== null) {
-                text += ` (P${city.owner + 1})`;
-            } else {
-                text += ` (Neutral)`;
+        let text;
+        if (this.isMobile) {
+            // Compact mobile display
+            text = `${terrainName}`;
+            if (defenseBonus > 0) {
+                text += ` +${defenseBonus}DEF`;
             }
-            text += `\nIncome: +${city.income}g`;
-        }
-
-        if (ruin && !ruin.explored) {
-            text += `\nRuin (unexplored)`;
+            if (city) {
+                const owner = city.owner !== null ? `P${city.owner + 1}` : 'Neut';
+                text += `\n${city.size} city (${owner}) +${city.income}g`;
+            }
+            if (ruin && !ruin.explored) {
+                text += `\nRuin (!)`;
+            }
+        } else {
+            // Desktop full display
+            text = `${terrainName}`;
+            if (defenseBonus > 0) {
+                text += ` (DEF +${defenseBonus})`;
+            }
+            if (city) {
+                text += `\nCity: ${city.size}`;
+                if (city.owner !== null) {
+                    text += ` (P${city.owner + 1})`;
+                } else {
+                    text += ` (Neutral)`;
+                }
+                text += `\nIncome: +${city.income}g`;
+            }
+            if (ruin && !ruin.explored) {
+                text += `\nRuin (unexplored)`;
+            }
         }
 
         this.elements.tileInfo.setText(text);
@@ -326,30 +385,61 @@ export class UIController {
         this.panels.production.removeAll(true);
         this.panels.production.setVisible(true);
 
-        const titleSize = this.isMobile ? '10px' : '12px';
-        const title = this.scene.add.text(0, 0, 'PRODUCTION:', {
-            fontFamily: 'Press Start 2P', fontSize: titleSize, color: '#FFFFFF'
-        });
-        this.panels.production.add(title);
-
         const options = city.getProductionOptions();
-        const btnWidth = this.isMobile ? 130 : 280;
-        const btnHeight = this.isMobile ? 30 : 40;
-        const spacing = this.isMobile ? 35 : 45;
 
-        options.forEach((opt, idx) => {
-            const y = 25 + idx * spacing;
-            const canAfford = player.gold >= opt.cost;
-            const btn = this.createProductionButton(0, y, btnWidth, btnHeight, opt, canAfford);
-            this.panels.production.add(btn.container);
+        if (this.isMobile) {
+            // Mobile: show production as horizontal buttons
+            const btnWidth = 90;
+            const btnHeight = 28;
+            const spacing = 95;
+            const maxButtons = Math.min(options.length, 3); // Show max 3 buttons
 
-            if (canAfford) {
-                btn.container.on('pointerup', () => {
-                    Events.emit('ui:produce', { city, unitType: opt.type });
-                    this.hideProduction();
+            options.slice(0, maxButtons).forEach((opt, idx) => {
+                const x = idx * spacing;
+                const canAfford = player.gold >= opt.cost;
+                const btn = this.createProductionButton(x, 0, btnWidth, btnHeight, opt, canAfford);
+                this.panels.production.add(btn.container);
+
+                if (canAfford) {
+                    btn.container.on('pointerup', () => {
+                        Events.emit('ui:produce', { city, unitType: opt.type });
+                        this.hideProduction();
+                    });
+                }
+            });
+
+            // If more options, add "More..." indicator
+            if (options.length > maxButtons) {
+                const moreText = this.scene.add.text(maxButtons * spacing + 10, 8, `+${options.length - maxButtons}`, {
+                    fontFamily: 'Press Start 2P', fontSize: '9px', color: '#AAAAAA'
                 });
+                this.panels.production.add(moreText);
             }
-        });
+        } else {
+            // Desktop: vertical list
+            const title = this.scene.add.text(0, 0, 'PRODUCTION:', {
+                fontFamily: 'Press Start 2P', fontSize: '12px', color: '#FFFFFF'
+            });
+            this.panels.production.add(title);
+
+            const btnWidth = 280;
+            const btnHeight = 40;
+            const spacing = 45;
+
+            options.forEach((opt, idx) => {
+                const y = 25 + idx * spacing;
+                const canAfford = player.gold >= opt.cost;
+                const btn = this.createProductionButton(0, y, btnWidth, btnHeight, opt, canAfford);
+                this.panels.production.add(btn.container);
+
+                if (canAfford) {
+                    btn.container.on('pointerup', () => {
+                        Events.emit('ui:produce', { city, unitType: opt.type });
+                        this.hideProduction();
+                    });
+                }
+            });
+        }
     }
 
     createProductionButton(x, y, w, h, opt, canAfford) {
