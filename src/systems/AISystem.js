@@ -574,7 +574,7 @@ export class AISystem {
 
         // Check if we can kill it
         const terrainBonus = this.map.getDefenseBonus(targetX, targetY);
-        const damage = CombatSystem.calculateDamage(unit, enemy, terrainBonus);
+        const damage = CombatSystem.calculateDamage(unit, enemy, terrainBonus).damage;
         if (damage >= enemy.hp) {
             score += 60; // Kill bonus
 
@@ -584,7 +584,7 @@ export class AISystem {
 
         // DAMAGE EFFICIENCY: Calculate expected retaliation damage
         const myTerrainBonus = this.map.getDefenseBonus(unit.x, unit.y);
-        const retaliationDamage = CombatSystem.calculateDamage(enemy, unit, myTerrainBonus);
+        const retaliationDamage = CombatSystem.calculateDamage(enemy, unit, myTerrainBonus).damage;
         const damageToMe = Math.min(unit.hp, retaliationDamage);
 
         // Prefer fights where we deal more damage than we take
@@ -771,8 +771,8 @@ export class AISystem {
                 if (enemyDist === 1) {
                     // Adjacent to enemy - check if we can win the fight
                     const terrainBonus = this.map.getDefenseBonus(x, y);
-                    const myDamage = CombatSystem.calculateDamage(unit, otherUnit, 0); // Enemy terrain bonus handled elsewhere
-                    const enemyDamage = CombatSystem.calculateDamage(otherUnit, unit, terrainBonus);
+                    const myDamage = CombatSystem.calculateDamage(unit, otherUnit, 0).damage; // Enemy terrain bonus handled elsewhere
+                    const enemyDamage = CombatSystem.calculateDamage(otherUnit, unit, terrainBonus).damage;
 
                     // If we'd lose the exchange, penalty
                     if (enemyDamage > myDamage && !unit.isHero) {
@@ -885,7 +885,7 @@ export class AISystem {
                     if (dist === 1) {
                         // Would be adjacent to enemy - check if we could die
                         const terrainBonus = this.map.getDefenseBonus(t.x, t.y);
-                        const enemyDamage = CombatSystem.calculateDamage(unit, hero, terrainBonus);
+                        const enemyDamage = CombatSystem.calculateDamage(unit, hero, terrainBonus).damage;
                         if (enemyDamage >= hero.hp) {
                             return false; // Too dangerous
                         }

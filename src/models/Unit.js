@@ -48,6 +48,10 @@ export class Unit {
         return UNIT_DEFINITIONS[this.type].name;
     }
 
+    get typeName() {
+        return UNIT_DEFINITIONS[this.type].name;
+    }
+
     canEnterTerrain(terrain) {
         return this.canEnter.includes(terrain);
     }

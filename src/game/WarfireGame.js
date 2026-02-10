@@ -1723,7 +1723,32 @@ export class WarfireGame {
             this.checkWinCondition();
         }
 
-        if (results.cityCaptured) {
+        // Melee kill: move attacker to defender's tile (only for adjacent/melee attacks)
+        if (results.defender.died && !isRanged && !results.attacker.died) {
+            const targetX = results.defender.unit.x;
+            const targetY = results.defender.unit.y;
+            const oldX = attacker.x;
+            const oldY = attacker.y;
+
+            // Move attacker to the tile (just update coordinates - units array is global)
+            attacker.x = targetX;
+            attacker.y = targetY;
+            attacker.hasMoved = true;
+
+            // Check for city capture on the new tile
+            const city = this.map.getCity(targetX, targetY);
+            if (city && city.owner !== attacker.owner) {
+                // Check if any enemy units remain
+                const remainingEnemies = this.map.getUnitsAt(targetX, targetY)
+                    .filter(u => u.owner !== attacker.owner && u.hp > 0);
+                if (remainingEnemies.length === 0) {
+                    this.captureCity(city, attacker.owner);
+                }
+            }
+        }
+
+        if (results.cityCaptured && !isRanged) {
+            // City capture already handled above for melee, but keep for ranged edge cases
             this.captureCity(results.cityCaptured, attacker.owner);
         }
 
