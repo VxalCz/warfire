@@ -23,29 +23,33 @@ export class UIController {
         // Main panel background
         bg.fillStyle(COLORS.uiBg, 1);
         bg.fillRect(this.x, this.y, this.width, this.height);
-        // Outer border
-        bg.lineStyle(4, COLORS.uiBorder, 1);
-        bg.strokeRect(this.x, this.y, this.width, this.height);
-        // Inner decorative line
-        bg.lineStyle(2, 0x2D5A8B, 1);
-        bg.strokeRect(this.x + 4, this.y + 4, this.width - 8, this.height - 8);
-        // Corner decorations
-        const cornerSize = 16;
-        bg.fillStyle(0xFFD700, 1);
-        // Top left
-        bg.fillTriangle(this.x, this.y, this.x + cornerSize, this.y, this.x, this.y + cornerSize);
-        // Top right
-        bg.fillTriangle(this.x + this.width, this.y, this.x + this.width - cornerSize, this.y, this.x + this.width, this.y + cornerSize);
-        // Bottom left
-        bg.fillTriangle(this.x, this.y + this.height, this.x + cornerSize, this.y + this.height, this.x, this.y + this.height - cornerSize);
-        // Bottom right
-        bg.fillTriangle(this.x + this.width, this.y + this.height, this.x + this.width - cornerSize, this.y + this.height, this.x + this.width, this.y + this.height - cornerSize);
 
-        // Header with title
-        bg.fillStyle(0x1A2F4A, 1);
-        bg.fillRect(this.x + 8, this.y + 8, this.width - 16, 30);
-        bg.lineStyle(2, 0xFFD700, 0.5);
-        bg.strokeRect(this.x + 8, this.y + 8, this.width - 16, 30);
+        // Desktop only: decorative elements
+        if (!this.isMobile) {
+            // Outer border
+            bg.lineStyle(4, COLORS.uiBorder, 1);
+            bg.strokeRect(this.x, this.y, this.width, this.height);
+            // Inner decorative line
+            bg.lineStyle(2, 0x2D5A8B, 1);
+            bg.strokeRect(this.x + 4, this.y + 4, this.width - 8, this.height - 8);
+            // Corner decorations
+            const cornerSize = 16;
+            bg.fillStyle(0xFFD700, 1);
+            // Top left
+            bg.fillTriangle(this.x, this.y, this.x + cornerSize, this.y, this.x, this.y + cornerSize);
+            // Top right
+            bg.fillTriangle(this.x + this.width, this.y, this.x + this.width - cornerSize, this.y, this.x + this.width, this.y + cornerSize);
+            // Bottom left
+            bg.fillTriangle(this.x, this.y + this.height, this.x + cornerSize, this.y + this.height, this.x, this.y + this.height - cornerSize);
+            // Bottom right
+            bg.fillTriangle(this.x + this.width, this.y + this.height, this.x + this.width - cornerSize, this.y + this.height, this.x + this.width, this.y + this.height - cornerSize);
+
+            // Header with title
+            bg.fillStyle(0x1A2F4A, 1);
+            bg.fillRect(this.x + 8, this.y + 8, this.width - 16, 30);
+            bg.lineStyle(2, 0xFFD700, 0.5);
+            bg.strokeRect(this.x + 8, this.y + 8, this.width - 16, 30);
+        }
 
         // Mobile: compact horizontal layout, Desktop: vertical sidebar
         if (this.isMobile) {
