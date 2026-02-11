@@ -2394,32 +2394,16 @@ export class WarfireGame {
                     player.addGold(150);
                     this.ui.showMessage('Ruin found: Gold (cannot build here)!');
                 } else {
-                    const freeTiles = this.map.getAdjacentFreeTiles(x, y, unit.owner);
+                    // Build city on the ruin location
+                    // Unit stays here as garrison (city and unit can coexist)
+                    const sizes = ['small', 'medium'];
+                    const randomSize = sizes[Utils.randomInt(0, sizes.length - 1)];
 
-                    if (freeTiles.length > 0) {
-                        // Move unit to adjacent free tile
-                        const moveTo = freeTiles[Utils.randomInt(0, freeTiles.length - 1)];
-                        const fromX = unit.x;
-                        const fromY = unit.y;
-                        unit.x = moveTo.x;
-                        unit.y = moveTo.y;
-                        unit.hasMoved = true;
-                        Events.emit('unit:moved', { unit, fromX, fromY, toX: moveTo.x, toY: moveTo.y });
+                    const newCity = new City(x, y, randomSize, unit.owner);
+                    this.map.addCity(newCity);
+                    player.cities.push(newCity);
 
-                        // Build city on the ruin location
-                        const sizes = ['small', 'medium'];
-                        const randomSize = sizes[Utils.randomInt(0, sizes.length - 1)];
-
-                        const newCity = new City(x, y, randomSize, unit.owner);
-                        this.map.addCity(newCity);
-                        player.cities.push(newCity);
-
-                        this.ui.showMessage(`Ruin found: New ${randomSize} city established!`);
-                    } else {
-                        // No adjacent space for unit - give gold instead
-                        player.addGold(150);
-                        this.ui.showMessage('Ruin found: Gold (no space for city)!');
-                    }
+                    this.ui.showMessage(`Ruin found: New ${randomSize} city established!`);
                 }
                 break;
             }
