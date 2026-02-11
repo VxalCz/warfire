@@ -203,6 +203,8 @@ export class RenderSystem {
     }
 
     renderMap(gameMap, blockadedCities = []) {
+        // Stop all tweens on map objects before removing them
+        this.containers.map.list.forEach(obj => this.scene.tweens.killTweensOf(obj));
         this.containers.map.removeAll(true);
 
         // Store map dimensions for camera bounds
@@ -515,6 +517,8 @@ export class RenderSystem {
     }
 
     renderUnits(units, selectedUnit = null) {
+        // Stop all tweens on unit objects before removing them
+        this.containers.units.list.forEach(obj => this.scene.tweens.killTweensOf(obj));
         // Clear old unit sprites
         this.pools.unitSprites.forEach(sprite => sprite.destroy());
         this.pools.unitSprites.clear();
@@ -667,6 +671,8 @@ export class RenderSystem {
     }
 
     highlightTiles(tiles) {
+        // Stop all tweens on highlight objects before removing them
+        this.containers.highlights.list.forEach(obj => this.scene.tweens.killTweensOf(obj));
         this.containers.highlights.removeAll(true);
 
         tiles.forEach(tile => {
@@ -707,6 +713,8 @@ export class RenderSystem {
     }
 
     clearHighlights() {
+        // Stop all tweens on highlight objects before removing them
+        this.containers.highlights.list.forEach(obj => this.scene.tweens.killTweensOf(obj));
         this.containers.highlights.removeAll(true);
     }
 
