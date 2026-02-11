@@ -1,4 +1,4 @@
-import { UNIT_DEFINITIONS, ARTIFACTS } from '../constants.js';
+import { UNIT_DEFINITIONS } from '../constants.js';
 import { Utils, Events } from '../utils.js';
 
 export class Unit {
@@ -23,28 +23,28 @@ export class Unit {
 
         this.hasMoved = false;
         this.hasAttacked = false;
-        this.artifacts = [];
         this.buffs = [];
     }
 
     get effectiveAttack() {
-        const artifactBonus = this.artifacts.reduce((s, a) => s + (a.attackBonus || 0), 0);
         const buffBonus = this.buffs.reduce((s, b) => s + (b.attackBonus || 0), 0);
-        return this.baseAttack + artifactBonus + buffBonus;
+        return this.baseAttack + buffBonus;
     }
 
     get effectiveDefense() {
-        const artifactBonus = this.artifacts.reduce((s, a) => s + (a.defenseBonus || 0), 0);
         const buffBonus = this.buffs.reduce((s, b) => s + (b.defenseBonus || 0), 0);
-        return this.baseDefense + artifactBonus + buffBonus;
+        return this.baseDefense + buffBonus;
     }
 
     get effectiveMovement() {
-        const artifactBonus = this.artifacts.reduce((s, a) => s + (a.movementBonus || 0), 0);
-        return this.baseMovement + artifactBonus;
+        return this.baseMovement;
     }
 
     get name() {
+        return UNIT_DEFINITIONS[this.type].name;
+    }
+
+    get typeName() {
         return UNIT_DEFINITIONS[this.type].name;
     }
 
@@ -66,11 +66,6 @@ export class Unit {
         return healed;
     }
 
-    addArtifact(artifact) {
-        this.artifacts.push({ ...artifact });
-        Events.emit('unit:artifactAdded', { unit: this, artifact });
-    }
-
     resetTurn() {
         this.hasMoved = false;
         this.hasAttacked = false;
@@ -85,8 +80,7 @@ export class Unit {
             y: this.y,
             hp: this.hp,
             hasMoved: this.hasMoved,
-            hasAttacked: this.hasAttacked,
-            artifacts: [...this.artifacts]
+            hasAttacked: this.hasAttacked
         };
     }
 
@@ -95,7 +89,6 @@ export class Unit {
         unit.hp = data.hp;
         unit.hasMoved = data.hasMoved;
         unit.hasAttacked = data.hasAttacked;
-        unit.artifacts = [...data.artifacts];
         return unit;
     }
 }

@@ -5,6 +5,7 @@ export class GameState {
         IDLE: 'IDLE',
         SELECTED: 'SELECTED',
         MOVING: 'MOVING',
+        MOVED: 'MOVED',          // Unit has moved, can still attack
         ATTACKING: 'ATTACKING',
         PRODUCTION: 'PRODUCTION',
         GAME_OVER: 'GAME_OVER'
@@ -20,8 +21,9 @@ export class GameState {
     transition(to, data = null) {
         const validTransitions = {
             [GameState.PHASES.IDLE]: [GameState.PHASES.SELECTED, GameState.PHASES.PRODUCTION],
-            [GameState.PHASES.SELECTED]: [GameState.PHASES.IDLE, GameState.PHASES.MOVING, GameState.PHASES.ATTACKING],
-            [GameState.PHASES.MOVING]: [GameState.PHASES.IDLE],
+            [GameState.PHASES.SELECTED]: [GameState.PHASES.IDLE, GameState.PHASES.MOVING, GameState.PHASES.ATTACKING, GameState.PHASES.MOVED],
+            [GameState.PHASES.MOVING]: [GameState.PHASES.IDLE, GameState.PHASES.MOVED],
+            [GameState.PHASES.MOVED]: [GameState.PHASES.IDLE, GameState.PHASES.ATTACKING],
             [GameState.PHASES.ATTACKING]: [GameState.PHASES.IDLE],
             [GameState.PHASES.PRODUCTION]: [GameState.PHASES.IDLE],
             [GameState.PHASES.GAME_OVER]: []

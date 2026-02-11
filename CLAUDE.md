@@ -194,3 +194,7 @@ All game graphics are generated programmatically using Phaser 3 Graphics API:
 - Stack splitting not implemented in UI
 - No undo functionality
 - AI is rule-based (not machine learning), sometimes makes suboptimal decisions
+
+## User Preferences
+
+**Git commits:** Do not add "Co-Authored-By: Claude Opus 4.6" or similar co-author lines to commit messages.
