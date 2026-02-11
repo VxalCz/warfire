@@ -1660,14 +1660,10 @@ export class WarfireGame {
         // Update unit position
         this.map.moveUnit(unit, x, y);
 
-        // Ruin exploration
+        // Ruin exploration - any unit can explore
         const ruin = this.map.getRuin(x, y);
-        if (ruin && unit.isHero) {
-            const artifact = this.map.exploreRuin(x, y);
-            if (artifact) {
-                unit.addArtifact(artifact);
-                this.ui.showMessage(`Found ${artifact.name}!`);
-            }
+        if (ruin) {
+            this.handleRuinExploration(unit, x, y);
         }
 
         // City capture
@@ -1761,6 +1757,81 @@ export class WarfireGame {
 
         this.renderer.renderMap(this.map, this.getBlockadedCities());
         this.renderer.renderUnits(this.map.units);
+    }
+
+    /**
+     * Handle ruin exploration and give random reward
+     * @param {Unit} unit - unit that entered the ruin
+     * @param {number} x - ruin x coordinate
+     * @param {number} y - ruin y coordinate
+     */
+    handleRuinExploration(unit, x, y) {
+        const player = this.players[unit.owner];
+        const rewardType = this.map.exploreRuin(x, y);
+
+        if (!rewardType) return;
+
+        switch (rewardType) {
+            case 'gold_50':
+                player.addGold(50);
+                this.ui.showMessage('Ruin found: 50 gold!');
+                break;
+
+            case 'gold_100':
+                player.addGold(100);
+                this.ui.showMessage('Ruin found: 100 gold!');
+                break;
+
+            case 'random_unit': {
+                // Get free adjacent tiles
+                const freeTiles = this.map.getAdjacentFreeTiles(x, y, unit.owner);
+
+                if (freeTiles.length === 0) {
+                    // No free space - give gold instead
+                    player.addGold(75);
+                    this.ui.showMessage('Ruin found: Gold (no space for unit)!');
+                } else {
+                    // Spawn random unit on a random free adjacent tile
+                    const spawnTile = freeTiles[Utils.randomInt(0, freeTiles.length - 1)];
+                    const unitTypes = ['LIGHT_INFANTRY', 'ARCHER', 'CAVALRY', 'HEAVY_INFANTRY'];
+                    const randomType = unitTypes[Utils.randomInt(0, unitTypes.length - 1)];
+
+                    const newUnit = new Unit(randomType, unit.owner, spawnTile.x, spawnTile.y);
+                    newUnit.hasMoved = true;
+                    newUnit.hasAttacked = true;
+                    this.map.units.push(newUnit);
+                    player.units.push(newUnit);
+
+                    this.ui.showMessage(`Ruin found: ${UNIT_DEFINITIONS[randomType].name} joined!`);
+                    this.renderer.renderUnits(this.map.units);
+                }
+                break;
+            }
+
+            case 'new_city': {
+                // Get free adjacent tiles for city placement
+                const freeTiles = this.map.getAdjacentFreeTiles(x, y, unit.owner);
+
+                if (freeTiles.length === 0) {
+                    // No free space - give gold instead
+                    player.addGold(150);
+                    this.ui.showMessage('Ruin found: Gold (no space for city)!');
+                } else {
+                    // Spawn city on a random free adjacent tile
+                    const spawnTile = freeTiles[Utils.randomInt(0, freeTiles.length - 1)];
+                    const sizes = ['small', 'medium'];
+                    const randomSize = sizes[Utils.randomInt(0, sizes.length - 1)];
+
+                    const newCity = new City(spawnTile.x, spawnTile.y, randomSize, unit.owner);
+                    this.map.addCity(newCity);
+                    player.cities.push(newCity);
+
+                    this.ui.showMessage(`Ruin found: New ${randomSize} city established!`);
+                    this.renderer.renderMap(this.map, this.getBlockadedCities());
+                }
+                break;
+            }
+        }
     }
 
     captureCity(city, newOwner) {

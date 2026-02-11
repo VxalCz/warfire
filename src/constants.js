@@ -128,7 +128,7 @@ export const UNIT_DEFINITIONS = {
     },
     HERO: {
         name: 'Hero',
-        cost: 0,
+        cost: 50,
         hp: 40,
         attack: 7,
         defense: 4,
@@ -141,8 +141,10 @@ export const UNIT_DEFINITIONS = {
 
 export const CITY_INCOME = { small: 5, medium: 10, large: 20 };
 
-export const ARTIFACTS = {
-    SWORD_OF_POWER: { name: 'Sword of Power', attackBonus: 3 },
-    SHIELD_OF_DEFENSE: { name: 'Shield of Defense', defenseBonus: 3 },
-    BOOTS_OF_SPEED: { name: 'Boots of Speed', movementBonus: 2 }
+/** Ruin reward types */
+export const RUIN_REWARD_TYPES = {
+    GOLD_50: 'gold_50',
+    GOLD_100: 'gold_100',
+    RANDOM_UNIT: 'random_unit',
+    NEW_CITY: 'new_city'
 };

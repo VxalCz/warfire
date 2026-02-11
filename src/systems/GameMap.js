@@ -1,4 +1,4 @@
-import { CONFIG, TERRAIN, TERRAIN_DEFENSE, UNIT_DEFINITIONS, ARTIFACTS } from '../constants.js';
+import { CONFIG, TERRAIN, TERRAIN_DEFENSE, UNIT_DEFINITIONS, RUIN_REWARD_TYPES } from '../constants.js';
 import { Utils, Events } from '../utils.js';
 import { City } from '../models/City.js';
 import { Stack } from '../models/Stack.js';
@@ -161,17 +161,78 @@ export class GameMap {
     }
 
     addRuin(x, y) {
-        this.ruins.push({ x, y, explored: false });
+        this.ruins.push({ x, y });
     }
 
+    /**
+     * Get random ruin reward type
+     * @returns {string} RUIN_REWARD_TYPES value
+     */
+    getRandomRuinReward() {
+        const types = Object.values(RUIN_REWARD_TYPES);
+        return types[Utils.randomInt(0, types.length - 1)];
+    }
+
+    /**
+     * Find adjacent free tiles for spawning unit/city
+     * @param {number} x - center x
+     * @param {number} y - center y
+     * @param {number} owner - player id
+     * @returns {Array<{x: number, y: number}>} array of free adjacent tiles
+     */
+    getAdjacentFreeTiles(x, y, owner) {
+        const directions = [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+        const freeTiles = [];
+
+        for (const [dx, dy] of directions) {
+            const nx = x + dx;
+            const ny = y + dy;
+
+            if (!this.isValid(nx, ny)) continue;
+            if (this.getCity(nx, ny)) continue;
+            if (this.getTerrain(nx, ny) === TERRAIN.WATER) continue;
+
+            // Check if tile has any unit
+            const units = this.getUnitsAt(nx, ny);
+            if (units.length === 0) {
+                freeTiles.push({ x: nx, y: ny });
+            }
+        }
+
+        return freeTiles;
+    }
+
+    /**
+     * Remove a ruin from the map permanently
+     * @param {number} x
+     * @param {number} y
+     */
+    removeRuin(x, y) {
+        const idx = this.ruins.findIndex(r => r.x === x && r.y === y);
+        if (idx > -1) {
+            this.ruins.splice(idx, 1);
+            Events.emit('ruin:removed', { x, y });
+        }
+    }
+
+    /**
+     * Explore a ruin and return the reward type
+     * The ruin is removed after exploration
+     * @param {number} x
+     * @param {number} y
+     * @returns {string|null} RUIN_REWARD_TYPES value or null if already explored/removed
+     */
     exploreRuin(x, y) {
         const ruin = this.ruins.find(r => r.x === x && r.y === y);
-        if (!ruin || ruin.explored) return null;
-        ruin.explored = true;
-        const keys = Object.keys(ARTIFACTS);
-        const artifact = { ...ARTIFACTS[keys[Utils.randomInt(0, keys.length - 1)]] };
-        Events.emit('ruin:explored', { x, y, artifact });
-        return artifact;
+        if (!ruin) return null;
+
+        const rewardType = this.getRandomRuinReward();
+        Events.emit('ruin:explored', { x, y, rewardType });
+
+        // Remove the ruin permanently
+        this.removeRuin(x, y);
+
+        return rewardType;
     }
 
     healUnitsInCities() {

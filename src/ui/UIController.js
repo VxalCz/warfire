@@ -404,7 +404,7 @@ export class UIController {
                 const owner = city.owner !== null ? `P${city.owner + 1}` : 'Neut';
                 text += `\n${city.size} city (${owner}) +${city.income}g`;
             }
-            if (ruin && !ruin.explored) {
+            if (ruin) {
                 text += `\nRuin (!)`;
             }
         } else {
@@ -422,7 +422,7 @@ export class UIController {
                 }
                 text += `\nIncome: +${city.income}g`;
             }
-            if (ruin && !ruin.explored) {
+            if (ruin) {
                 text += `\nRuin (unexplored)`;
             }
         }
@@ -611,16 +611,14 @@ export class UIController {
 
         // Ruins
         map.ruins.forEach(ruin => {
-            if (!ruin.explored) {
-                const dot = this.scene.add.rectangle(
-                    ruin.x * this.minimapScale + 1,
-                    ruin.y * this.minimapScale + 1,
-                    2, 2,
-                    0x8B4513
-                );
-                dot.setOrigin(0, 0);
-                this.panels.minimap.add(dot);
-            }
+            const dot = this.scene.add.rectangle(
+                ruin.x * this.minimapScale + 1,
+                ruin.y * this.minimapScale + 1,
+                2, 2,
+                0x8B4513
+            );
+            dot.setOrigin(0, 0);
+            this.panels.minimap.add(dot);
         });
 
         // Units (show only alive units)
