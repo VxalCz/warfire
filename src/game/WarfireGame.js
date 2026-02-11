@@ -2379,7 +2379,6 @@ export class WarfireGame {
                     player.units.push(newUnit);
 
                     this.ui.showMessage(`Ruin found: ${UNIT_DEFINITIONS[randomType].name} joined!`);
-                    this.renderer.renderUnits(this.map.units);
                 }
                 break;
             }
@@ -2416,7 +2415,6 @@ export class WarfireGame {
                         player.cities.push(newCity);
 
                         this.ui.showMessage(`Ruin found: New ${randomSize} city established!`);
-                        this.renderer.renderMap(this.map, this.getBlockadedCities());
                     } else {
                         // No adjacent space for unit - give gold instead
                         player.addGold(150);
@@ -2426,6 +2424,10 @@ export class WarfireGame {
                 break;
             }
         }
+
+        // Re-render map to remove the explored ruin visually
+        this.renderer.renderMap(this.map, this.getBlockadedCities());
+        this.renderer.renderUnits(this.map.units);
     }
 
     captureCity(city, newOwner) {
