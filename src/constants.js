@@ -72,7 +72,7 @@ export const UNIT_DEFINITIONS = {
         hp: 20,
         attack: 3,
         defense: 2,
-        movement: 3,
+        movement: 4,
         range: 1,
         canEnter: [TERRAIN.PLAINS, TERRAIN.FOREST, TERRAIN.MOUNTAINS]
     },
@@ -82,7 +82,7 @@ export const UNIT_DEFINITIONS = {
         hp: 35,
         attack: 5,
         defense: 4,
-        movement: 2,
+        movement: 3,
         range: 1,
         canEnter: [TERRAIN.PLAINS, TERRAIN.FOREST, TERRAIN.MOUNTAINS]
     },
@@ -92,7 +92,7 @@ export const UNIT_DEFINITIONS = {
         hp: 25,
         attack: 6,
         defense: 2,
-        movement: 5,
+        movement: 7,
         range: 1,
         canEnter: [TERRAIN.PLAINS, TERRAIN.FOREST, TERRAIN.MOUNTAINS]
     },
@@ -102,7 +102,7 @@ export const UNIT_DEFINITIONS = {
         hp: 15,
         attack: 4,
         defense: 1,
-        movement: 3,
+        movement: 4,
         range: 2,
         canEnter: [TERRAIN.PLAINS, TERRAIN.FOREST, TERRAIN.MOUNTAINS]
     },
@@ -112,7 +112,7 @@ export const UNIT_DEFINITIONS = {
         hp: 10,
         attack: 8,
         defense: 1,
-        movement: 2,
+        movement: 3,
         range: 3,
         canEnter: [TERRAIN.PLAINS, TERRAIN.FOREST, TERRAIN.MOUNTAINS]
     },
@@ -122,7 +122,7 @@ export const UNIT_DEFINITIONS = {
         hp: 50,
         attack: 10,
         defense: 5,
-        movement: 6,
+        movement: 8,
         range: 1,
         canEnter: [TERRAIN.PLAINS, TERRAIN.FOREST, TERRAIN.MOUNTAINS, TERRAIN.WATER]
     },
@@ -132,7 +132,7 @@ export const UNIT_DEFINITIONS = {
         hp: 40,
         attack: 7,
         defense: 4,
-        movement: 4,
+        movement: 5,
         range: 1,
         isHero: true,
         canEnter: [TERRAIN.PLAINS, TERRAIN.FOREST, TERRAIN.MOUNTAINS]

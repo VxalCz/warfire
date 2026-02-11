@@ -64,6 +64,7 @@ export class WarfireGame {
         this.createTextures();
 
         this.map = new GameMap(mapWidth, mapHeight);
+        this.balanceTerrainForFairness(mapWidth, mapHeight);
         this.createPlayers(playerConfigs);
         this.setupInitialPositions(mapWidth, mapHeight);
         this.setupNeutralCities(mapWidth, mapHeight, numCities);
@@ -1175,24 +1176,215 @@ export class WarfireGame {
             numNeutral = numCities;
         } else {
             const areaRatio = (mapWidth * mapHeight) / (CONFIG.MAP_WIDTH * CONFIG.MAP_HEIGHT);
-            numNeutral = Math.floor(Utils.randomInt(4, 6) * areaRatio);
+            // Increased base count for sector-based distribution (was 6-10)
+            numNeutral = Math.floor(Utils.randomInt(10, 16) * areaRatio);
         }
 
-        const sizes = ['small', 'small', 'medium', 'medium', 'large'];
+        // Sector-based placement for fairness
+        const numPlayers = this.players.length;
+        const sectorCities = Math.floor(numNeutral * 0.6); // 60% evenly distributed
+        const contestedCities = numNeutral - sectorCities; // 40% in center for competition
 
-        for (let i = 0; i < numNeutral; i++) {
-            let x, y, attempts = 0;
-            do {
-                x = Utils.randomInt(2, mapWidth - 3);
-                y = Utils.randomInt(2, mapHeight - 3);
-                attempts++;
-            } while ((this.map.getCity(x, y) || this.map.getTerrain(x, y) === TERRAIN.WATER) && attempts < 50);
+        // Each sector gets equal number of cities
+        const perSector = Math.max(1, Math.floor(sectorCities / numPlayers));
 
-            if (attempts < 50) {
-                const size = sizes[Utils.randomInt(0, sizes.length - 1)];
-                this.map.addCity(new City(x, y, size, null));
+        // Place cities in each player's sector
+        for (let playerIdx = 0; playerIdx < numPlayers; playerIdx++) {
+            const sector = this.getPlayerSector(playerIdx, mapWidth, mapHeight);
+            this.placeCitiesInSector(sector, perSector, playerIdx, mapWidth, mapHeight);
+        }
+
+        // Place contested cities in the center
+        const centerSector = this.getCenterSector(mapWidth, mapHeight);
+        this.placeCitiesInSector(centerSector, contestedCities, null, mapWidth, mapHeight);
+    }
+
+    /**
+     * Get sector bounds for a player's starting corner
+     */
+    getPlayerSector(playerIdx, mapWidth, mapHeight) {
+        const margin = 3; // Margin from edges
+        const centerX = Math.floor(mapWidth / 2);
+        const centerY = Math.floor(mapHeight / 2);
+
+        // Define sectors based on starting corners
+        const sectors = [
+            { x1: margin, y1: margin, x2: centerX - 1, y2: centerY - 1 }, // Top-left (P1)
+            { x1: margin, y1: centerY, x2: centerX - 1, y2: mapHeight - margin - 1 }, // Bottom-left (P2)
+            { x1: centerX, y1: centerY, x2: mapWidth - margin - 1, y2: mapHeight - margin - 1 }, // Bottom-right (P3)
+            { x1: centerX, y1: margin, x2: mapWidth - margin - 1, y2: centerY - 1 } // Top-right (P4)
+        ];
+
+        return sectors[playerIdx] || sectors[0];
+    }
+
+    /**
+     * Get center sector for contested resources
+     */
+    getCenterSector(mapWidth, mapHeight) {
+        const marginX = Math.floor(mapWidth * 0.25);
+        const marginY = Math.floor(mapHeight * 0.25);
+        return {
+            x1: marginX,
+            y1: marginY,
+            x2: mapWidth - marginX - 1,
+            y2: mapHeight - marginY - 1
+        };
+    }
+
+    /**
+     * Place cities in a sector with smart positioning
+     */
+    placeCitiesInSector(sector, count, preferredPlayerIdx, mapWidth, mapHeight) {
+        const sizes = ['small', 'medium', 'medium', 'large']; // Weighted toward medium
+        const minDistFromStart = 5; // Minimum distance from starting city
+        const minDistBetweenCities = 4; // Minimum distance between neutral cities
+
+        for (let i = 0; i < count; i++) {
+            let bestPos = null;
+            let bestScore = -Infinity;
+
+            // Try multiple positions and pick the best one
+            for (let attempt = 0; attempt < 50; attempt++) {
+                const x = Utils.randomInt(sector.x1, sector.x2);
+                const y = Utils.randomInt(sector.y1, sector.y2);
+
+                // Basic validation
+                if (!this.isValidCityPosition(x, y)) continue;
+
+                // Score this position
+                const score = this.evaluateCityPosition(x, y, preferredPlayerIdx, minDistFromStart, minDistBetweenCities);
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestPos = { x, y };
+                }
+            }
+
+            if (bestPos && bestScore > 0) {
+                // Weighted size selection
+                const size = this.weightedRandom(sizes, [0.25, 0.40, 0.25, 0.10]);
+                this.map.addCity(new City(bestPos.x, bestPos.y, size, null));
             }
         }
+    }
+
+    /**
+     * Check if position is valid for a city
+     */
+    isValidCityPosition(x, y) {
+        if (this.map.getCity(x, y)) return false;
+        if (this.map.getRuin(x, y)) return false;
+        if (this.map.getTerrain(x, y) === TERRAIN.WATER) return false;
+        return true;
+    }
+
+    /**
+     * Evaluate city position score (higher = better)
+     */
+    evaluateCityPosition(x, y, preferredPlayerIdx, minDistFromStart, minDistBetweenCities) {
+        let score = 100; // Base score
+
+        // Distance from all starting positions
+        const startPositions = [
+            { x: 1, y: 1 }, // P1
+            { x: this.map.width - 2, y: 1 }, // P2 - wait, need to check actual corners
+            { x: 1, y: this.map.height - 2 },
+            { x: this.map.width - 2, y: this.map.height - 2 }
+        ];
+
+        // Get actual start positions from setupInitialPositions
+        const corners = [
+            { x: 1, y: 1 },
+            { x: this.map.width - 2, y: this.map.height - 2 },
+            { x: 1, y: this.map.height - 2 },
+            { x: this.map.width - 2, y: 1 }
+        ];
+
+        for (let i = 0; i < this.players.length; i++) {
+            const start = corners[i];
+            if (!start) continue;
+
+            const dist = Utils.manhattanDistance(x, y, start.x, start.y);
+
+            if (i === preferredPlayerIdx) {
+                // For preferred player: optimal distance is 5-10 tiles
+                if (dist < minDistFromStart) {
+                    score -= 200; // Too close - big penalty
+                } else if (dist >= 5 && dist <= 10) {
+                    score += 50; // Ideal range
+                } else if (dist > 10 && dist <= 15) {
+                    score += 20; // Good range
+                } else {
+                    score -= 10; // Too far
+                }
+            } else {
+                // For other players: farther is better
+                if (dist < minDistFromStart) {
+                    score -= 30; // Too close to their start
+                } else if (dist >= 8) {
+                    score += 10; // Good, far from their reach
+                }
+            }
+        }
+
+        // Distance from other cities
+        for (const city of this.map.cities) {
+            const dist = Utils.manhattanDistance(x, y, city.x, city.y);
+            if (dist < minDistBetweenCities) {
+                score -= 100; // Too close to existing city
+            } else if (dist >= 4 && dist <= 8) {
+                score += 15; // Good spacing for strategic play
+            }
+        }
+
+        // Check terrain accessibility
+        const accessibleTiles = this.countAccessibleTiles(x, y, 3);
+        score += accessibleTiles * 3;
+
+        // Prefer plains for accessibility
+        const terrain = this.map.getTerrain(x, y);
+        if (terrain === TERRAIN.PLAINS) score += 10;
+        if (terrain === TERRAIN.FOREST) score += 5;
+        if (terrain === TERRAIN.MOUNTAINS) score -= 5;
+
+        // Ruins nearby = bonus (synergy of interest)
+        const nearbyRuin = this.map.ruins.find(r =>
+            Utils.manhattanDistance(x, y, r.x, r.y) <= 4
+        );
+        if (nearbyRuin) score += 20;
+
+        return score;
+    }
+
+    /**
+     * Count accessible (non-water) tiles within radius
+     */
+    countAccessibleTiles(centerX, centerY, radius) {
+        let count = 0;
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                const x = centerX + dx;
+                const y = centerY + dy;
+                if (this.map.isValid(x, y) && this.map.getTerrain(x, y) !== TERRAIN.WATER) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Weighted random selection from array
+     */
+    weightedRandom(items, weights) {
+        const total = weights.reduce((a, b) => a + b, 0);
+        let random = Math.random() * total;
+        for (let i = 0; i < items.length; i++) {
+            random -= weights[i];
+            if (random <= 0) return items[i];
+        }
+        return items[items.length - 1];
     }
 
     setupRuins(mapWidth, mapHeight, numRuins = null) {
@@ -1202,21 +1394,405 @@ export class WarfireGame {
             actualNumRuins = numRuins;
         } else {
             const areaRatio = (mapWidth * mapHeight) / (CONFIG.MAP_WIDTH * CONFIG.MAP_HEIGHT);
-            actualNumRuins = Math.floor(Utils.randomInt(5, 8) * areaRatio);
+            // Increased base count for strategic path placement (was 6-10)
+            actualNumRuins = Math.floor(Utils.randomInt(10, 16) * areaRatio);
         }
 
-        for (let i = 0; i < actualNumRuins; i++) {
-            let x, y, attempts = 0;
-            do {
-                x = Utils.randomInt(2, mapWidth - 3);
-                y = Utils.randomInt(2, mapHeight - 3);
-                attempts++;
-            } while ((this.map.getCity(x, y) || this.map.getRuin(x, y) || this.map.getTerrain(x, y) === TERRAIN.WATER) && attempts < 50);
+        // 50% of ruins on strategic paths between important locations
+        const pathRuins = Math.floor(actualNumRuins * 0.5);
+        const scatterRuins = actualNumRuins - pathRuins;
 
-            if (attempts < 50) {
-                this.map.addRuin(x, y);
+        // Find key paths and place ruins along them
+        const paths = this.findKeyPaths();
+        this.placeRuinsOnPaths(paths, pathRuins);
+
+        // Scatter remaining ruins evenly
+        this.scatterRemainingRuins(scatterRuins, mapWidth, mapHeight);
+    }
+
+    /**
+     * Find key strategic paths (start -> nearest cities, between cities)
+     */
+    findKeyPaths() {
+        const paths = [];
+        const corners = [
+            { x: 1, y: 1 },
+            { x: this.map.width - 2, y: this.map.height - 2 },
+            { x: 1, y: this.map.height - 2 },
+            { x: this.map.width - 2, y: 1 }
+        ];
+        const neutralCities = this.map.cities.filter(c => c.owner === null);
+
+        // Path from each start to nearest 2 neutral cities
+        for (let i = 0; i < this.players.length; i++) {
+            const start = corners[i];
+            if (!start) continue;
+
+            // Find nearest neutral cities by distance
+            const nearest = neutralCities
+                .map(c => ({
+                    city: c,
+                    dist: Utils.manhattanDistance(start.x, start.y, c.x, c.y)
+                }))
+                .filter(item => item.dist >= 5) // Not too close
+                .sort((a, b) => a.dist - b.dist)
+                .slice(0, 2);
+
+            for (const { city } of nearest) {
+                paths.push({ from: start, to: city, type: 'expansion' });
             }
         }
+
+        // Paths between neutral cities (trade routes)
+        for (let i = 0; i < neutralCities.length; i++) {
+            for (let j = i + 1; j < neutralCities.length; j++) {
+                const dist = Utils.manhattanDistance(
+                    neutralCities[i].x, neutralCities[i].y,
+                    neutralCities[j].x, neutralCities[j].y
+                );
+                // Only connect cities at reasonable distance
+                if (dist >= 5 && dist <= 12) {
+                    paths.push({
+                        from: neutralCities[i],
+                        to: neutralCities[j],
+                        type: 'trade'
+                    });
+                }
+            }
+        }
+
+        // Shuffle paths to add variety
+        return paths.sort(() => Math.random() - 0.5);
+    }
+
+    /**
+     * Place ruins along strategic paths
+     */
+    placeRuinsOnPaths(paths, count) {
+        let placed = 0;
+
+        for (let i = 0; i < paths.length && placed < count; i++) {
+            const path = paths[i];
+
+            // Calculate position ~60% along the path (creates "checkpoint" feel)
+            // Add some randomness so they're not perfectly predictable
+            const t = 0.5 + (Math.random() * 0.3 - 0.15); // 35% - 65%
+
+            const x = Math.round(path.from.x + (path.to.x - path.from.x) * t);
+            const y = Math.round(path.from.y + (path.to.y - path.from.y) * t);
+
+            // Try to find valid position near the calculated point
+            const pos = this.findValidRuinPosition(x, y);
+            if (pos) {
+                this.map.addRuin(pos.x, pos.y);
+                placed++;
+            }
+        }
+    }
+
+    /**
+     * Find valid position for a ruin near target coordinates
+     */
+    findValidRuinPosition(targetX, targetY, searchRadius = 3) {
+        // Try the target position first
+        if (this.isValidRuinPosition(targetX, targetY)) {
+            return { x: targetX, y: targetY };
+        }
+
+        // Search in expanding radius
+        for (let r = 1; r <= searchRadius; r++) {
+            const candidates = [];
+            for (let dy = -r; dy <= r; dy++) {
+                for (let dx = -r; dx <= r; dx++) {
+                    if (Math.abs(dx) + Math.abs(dy) !== r) continue; // Only check ring
+
+                    const x = targetX + dx;
+                    const y = targetY + dy;
+                    if (this.isValidRuinPosition(x, y)) {
+                        candidates.push({ x, y, dist: Math.abs(dx) + Math.abs(dy) });
+                    }
+                }
+            }
+
+            if (candidates.length > 0) {
+                // Pick closest valid position
+                candidates.sort((a, b) => a.dist - b.dist);
+                return candidates[0];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if position is valid for a ruin
+     */
+    isValidRuinPosition(x, y) {
+        if (!this.map.isValid(x, y)) return false;
+        if (this.map.getCity(x, y)) return false;
+        if (this.map.getRuin(x, y)) return false;
+        if (this.map.getTerrain(x, y) === TERRAIN.WATER) return false;
+
+        // Don't place too close to starting positions
+        const corners = [
+            { x: 1, y: 1 },
+            { x: this.map.width - 2, y: this.map.height - 2 },
+            { x: 1, y: this.map.height - 2 },
+            { x: this.map.width - 2, y: 1 }
+        ];
+
+        for (const start of corners) {
+            const dist = Utils.manhattanDistance(x, y, start.x, start.y);
+            if (dist < 3) return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Scatter remaining ruins evenly across the map
+     */
+    scatterRemainingRuins(count, mapWidth, mapHeight) {
+        // Divide map into regions for even distribution
+        const numPlayers = this.players.length || 4;
+        const regions = [];
+
+        for (let i = 0; i < numPlayers; i++) {
+            regions.push(this.getPlayerSector(i, mapWidth, mapHeight));
+        }
+
+        const perRegion = Math.floor(count / regions.length);
+        const remainder = count % regions.length;
+
+        for (let i = 0; i < regions.length; i++) {
+            const region = regions[i];
+            const toPlace = perRegion + (i < remainder ? 1 : 0);
+
+            for (let j = 0; j < toPlace; j++) {
+                // Try multiple positions in this region
+                let bestPos = null;
+                let bestScore = -Infinity;
+
+                for (let attempt = 0; attempt < 30; attempt++) {
+                    const x = Utils.randomInt(region.x1, region.x2);
+                    const y = Utils.randomInt(region.y1, region.y2);
+
+                    if (!this.isValidRuinPosition(x, y)) continue;
+
+                    // Score based on distance from other ruins (spread them out)
+                    let score = 100;
+                    for (const ruin of this.map.ruins) {
+                        const dist = Utils.manhattanDistance(x, y, ruin.x, ruin.y);
+                        if (dist < 3) score -= 50;
+                        else if (dist > 6) score += 5;
+                    }
+
+                    // Prefer accessible terrain
+                    const accessible = this.countAccessibleTiles(x, y, 2);
+                    score += accessible * 2;
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestPos = { x, y };
+                    }
+                }
+
+                if (bestPos) {
+                    this.map.addRuin(bestPos.x, bestPos.y);
+                }
+            }
+        }
+    }
+
+    /**
+     * Balance terrain distribution between player sectors for fairness
+     * Ensures each player has similar terrain composition
+     */
+    balanceTerrainForFairness(mapWidth, mapHeight) {
+        const numPlayers = 4; // Always check all 4 potential sectors
+        const targetForestRatio = 0.20; // ~20% forest per sector
+        const targetMountainRatio = 0.15; // ~15% mountains per sector
+        const tolerance = 0.05; // 5% tolerance
+
+        // Analyze each sector
+        const sectorStats = [];
+        for (let i = 0; i < numPlayers; i++) {
+            const sector = this.getPlayerSector(i, mapWidth, mapHeight);
+            const stats = this.analyzeSectorTerrain(sector);
+            sectorStats.push({ sector, stats });
+        }
+
+        // Find average ratios
+        const avgForest = sectorStats.reduce((s, data) => s + data.stats.forestRatio, 0) / numPlayers;
+        const avgMountains = sectorStats.reduce((s, data) => s + data.stats.mountainRatio, 0) / numPlayers;
+
+        // Balance sectors that are too far from average
+        for (const { sector, stats } of sectorStats) {
+            // If this sector has too little forest, add some
+            if (stats.forestRatio < avgForest - tolerance) {
+                const neededTiles = Math.floor(stats.total * (avgForest - stats.forestRatio));
+                this.addTerrainToSector(sector, TERRAIN.FOREST, neededTiles);
+            }
+
+            // If this sector has too little mountains, add some
+            if (stats.mountainRatio < avgMountains - tolerance) {
+                const neededTiles = Math.floor(stats.total * (avgMountains - stats.mountainRatio));
+                this.addTerrainToSector(sector, TERRAIN.MOUNTAINS, neededTiles);
+            }
+
+            // Ensure each sector has minimal water access
+            if (stats.waterCount < 2) {
+                // Add a small water patch near the edge
+                this.addWaterToSector(sector);
+            }
+        }
+
+        // Ensure starting positions (corners) are always plains
+        const corners = [
+            { x: 1, y: 1 },
+            { x: mapWidth - 2, y: 1 },
+            { x: 1, y: mapHeight - 2 },
+            { x: mapWidth - 2, y: mapHeight - 2 }
+        ];
+
+        for (const pos of corners) {
+            // Clear 3x3 area around each corner for starting position
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const x = pos.x + dx;
+                    const y = pos.y + dy;
+                    if (this.map.isValid(x, y)) {
+                        this.map.terrain[y][x] = TERRAIN.PLAINS;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Analyze terrain composition in a sector
+     */
+    analyzeSectorTerrain(sector) {
+        let plains = 0, forest = 0, mountains = 0, water = 0, total = 0;
+
+        for (let y = sector.y1; y <= sector.y2; y++) {
+            for (let x = sector.x1; x <= sector.x2; x++) {
+                if (!this.map.isValid(x, y)) continue;
+                total++;
+
+                const terrain = this.map.getTerrain(x, y);
+                switch (terrain) {
+                    case TERRAIN.PLAINS: plains++; break;
+                    case TERRAIN.FOREST: forest++; break;
+                    case TERRAIN.MOUNTAINS: mountains++; break;
+                    case TERRAIN.WATER: water++; break;
+                }
+            }
+        }
+
+        return {
+            total,
+            plains,
+            forest,
+            mountains,
+            water,
+            forestRatio: forest / total,
+            mountainRatio: mountains / total,
+            waterCount: water
+        };
+    }
+
+    /**
+     * Add terrain to a sector at random valid positions
+     */
+    addTerrainToSector(sector, terrainType, count) {
+        let added = 0;
+        let attempts = 0;
+
+        while (added < count && attempts < count * 10) {
+            attempts++;
+            const x = Utils.randomInt(sector.x1, sector.x2);
+            const y = Utils.randomInt(sector.y1, sector.y2);
+
+            if (!this.map.isValid(x, y)) continue;
+            if (this.map.getTerrain(x, y) !== TERRAIN.PLAINS) continue;
+
+            // Don't modify near starting positions
+            const isNearStart = this.isNearStartingPosition(x, y);
+            if (isNearStart) continue;
+
+            this.map.terrain[y][x] = terrainType;
+            added++;
+
+            // Add some clustering (terrain patches)
+            if (Math.random() < 0.5) {
+                const neighbors = this.map.getNeighbors(x, y);
+                for (const n of neighbors) {
+                    if (this.map.getTerrain(n.x, n.y) === TERRAIN.PLAINS && !this.isNearStartingPosition(n.x, n.y)) {
+                        this.map.terrain[n.y][n.x] = terrainType;
+                        added++;
+                        if (added >= count) break;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Add a small water body to a sector (edge placement)
+     */
+    addWaterToSector(sector) {
+        // Try to place water near sector edge
+        const edgePositions = [];
+
+        // Top and bottom edges
+        for (let x = sector.x1; x <= sector.x2; x++) {
+            edgePositions.push({ x, y: sector.y1 });
+            edgePositions.push({ x, y: sector.y2 });
+        }
+        // Left and right edges
+        for (let y = sector.y1 + 1; y < sector.y2; y++) {
+            edgePositions.push({ x: sector.x1, y });
+            edgePositions.push({ x: sector.x2, y });
+        }
+
+        // Shuffle and try positions
+        const shuffled = edgePositions.sort(() => Math.random() - 0.5);
+
+        for (const pos of shuffled) {
+            if (!this.map.isValid(pos.x, pos.y)) continue;
+            if (this.map.getTerrain(pos.x, pos.y) !== TERRAIN.PLAINS) continue;
+            if (this.isNearStartingPosition(pos.x, pos.y)) continue;
+
+            // Create small water patch (2-3 tiles)
+            this.map.terrain[pos.y][pos.x] = TERRAIN.WATER;
+
+            const neighbors = this.map.getNeighbors(pos.x, pos.y);
+            for (const n of neighbors) {
+                if (Math.random() < 0.5 && this.map.getTerrain(n.x, n.y) === TERRAIN.PLAINS) {
+                    this.map.terrain[n.y][n.x] = TERRAIN.WATER;
+                }
+            }
+            return; // Done
+        }
+    }
+
+    /**
+     * Check if position is near any starting position
+     */
+    isNearStartingPosition(x, y, radius = 4) {
+        const corners = [
+            { x: 1, y: 1 },
+            { x: this.map.width - 2, y: 1 },
+            { x: 1, y: this.map.height - 2 },
+            { x: this.map.width - 2, y: this.map.height - 2 }
+        ];
+
+        for (const start of corners) {
+            const dist = Utils.manhattanDistance(x, y, start.x, start.y);
+            if (dist <= radius) return true;
+        }
+        return false;
     }
 
     setupSpectatorCameraControls() {
@@ -1809,25 +2385,43 @@ export class WarfireGame {
             }
 
             case 'new_city': {
-                // Get free adjacent tiles for city placement
-                const freeTiles = this.map.getAdjacentFreeTiles(x, y, unit.owner);
+                // Build city directly on the ruin tile
+                // The exploring unit is on this tile, move them to adjacent free tile
+                const terrain = this.map.getTerrain(x, y);
+                const existingCity = this.map.getCity(x, y);
 
-                if (freeTiles.length === 0) {
-                    // No free space - give gold instead
+                if (terrain === TERRAIN.WATER || existingCity) {
+                    // Cannot build on water or existing city - give gold
                     player.addGold(150);
-                    this.ui.showMessage('Ruin found: Gold (no space for city)!');
+                    this.ui.showMessage('Ruin found: Gold (cannot build here)!');
                 } else {
-                    // Spawn city on a random free adjacent tile
-                    const spawnTile = freeTiles[Utils.randomInt(0, freeTiles.length - 1)];
-                    const sizes = ['small', 'medium'];
-                    const randomSize = sizes[Utils.randomInt(0, sizes.length - 1)];
+                    const freeTiles = this.map.getAdjacentFreeTiles(x, y, unit.owner);
 
-                    const newCity = new City(spawnTile.x, spawnTile.y, randomSize, unit.owner);
-                    this.map.addCity(newCity);
-                    player.cities.push(newCity);
+                    if (freeTiles.length > 0) {
+                        // Move unit to adjacent free tile
+                        const moveTo = freeTiles[Utils.randomInt(0, freeTiles.length - 1)];
+                        const fromX = unit.x;
+                        const fromY = unit.y;
+                        unit.x = moveTo.x;
+                        unit.y = moveTo.y;
+                        unit.hasMoved = true;
+                        Events.emit('unit:moved', { unit, fromX, fromY, toX: moveTo.x, toY: moveTo.y });
 
-                    this.ui.showMessage(`Ruin found: New ${randomSize} city established!`);
-                    this.renderer.renderMap(this.map, this.getBlockadedCities());
+                        // Build city on the ruin location
+                        const sizes = ['small', 'medium'];
+                        const randomSize = sizes[Utils.randomInt(0, sizes.length - 1)];
+
+                        const newCity = new City(x, y, randomSize, unit.owner);
+                        this.map.addCity(newCity);
+                        player.cities.push(newCity);
+
+                        this.ui.showMessage(`Ruin found: New ${randomSize} city established!`);
+                        this.renderer.renderMap(this.map, this.getBlockadedCities());
+                    } else {
+                        // No adjacent space for unit - give gold instead
+                        player.addGold(150);
+                        this.ui.showMessage('Ruin found: Gold (no space for city)!');
+                    }
                 }
                 break;
             }

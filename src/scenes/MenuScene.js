@@ -123,9 +123,10 @@ export class MenuScene extends Phaser.Scene {
             const area = width * height;
             const baseArea = 20 * 15; // Medium map area
             const ratio = area / baseArea;
+            // Increased counts for sector-based distribution
             return {
-                numCities: Math.max(2, Math.floor(5 * ratio)),
-                numRuins: Math.max(2, Math.floor(6 * ratio))
+                numCities: Math.max(4, Math.floor(10 * ratio)),
+                numRuins: Math.max(4, Math.floor(10 * ratio))
             };
         };
 
