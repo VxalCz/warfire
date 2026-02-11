@@ -550,6 +550,17 @@ export class AISystem {
 
                         let opportunityScore = 0;
 
+                        // Get economic context for opportunity attack evaluation
+                        const economicAdv = this.calculateEconomicAdvantage(player);
+                        const isEconomicallyDominant = economicAdv.cityRatio >= 1.5 || economicAdv.incomeRatio >= 1.5;
+                        const isModeratelyAhead = economicAdv.cityRatio >= 1.2 || economicAdv.incomeRatio >= 1.3;
+
+                        // Calculate if this trade is economically favorable
+                        const enemyDef = UNIT_DEFINITIONS[enemy.type];
+                        const myDef = UNIT_DEFINITIONS[unit.type];
+                        const enemyValue = enemyDef ? enemyDef.cost : 20;
+                        const myValue = myDef ? myDef.cost : 20;
+
                         // High priority for kills
                         if (myDamage >= enemy.hp) {
                             opportunityScore += 100;
@@ -557,14 +568,33 @@ export class AISystem {
                             if (enemy.isHero) opportunityScore += 150;
                             if (enemy.type === 'DRAGON') opportunityScore += 80;
                             if (enemy.type === 'CATAPULT') opportunityScore += 50;
+
+                            // Economic advantage: even trades are fine when ahead
+                            if (isEconomicallyDominant && myDamage >= enemy.hp) {
+                                opportunityScore += 40; // Bonus for any kill when economically ahead
+                            }
                         }
                         // Favorable trades are good too
                         else if (myDamage > enemyDamage * 1.5) {
                             opportunityScore += 50;
                         }
+                        // When economically ahead, accept even or slightly unfavorable trades
+                        else if (isEconomicallyDominant && myDamage >= enemyDamage * 0.8) {
+                            if (enemyValue >= myValue) {
+                                opportunityScore += 60; // Trading up or even is good
+                            } else {
+                                opportunityScore += 25; // Acceptable to maintain pressure
+                            }
+                        }
+                        else if (isModeratelyAhead && myDamage >= enemyDamage && enemyValue >= myValue) {
+                            opportunityScore += 35; // Moderate advantage: accept even trades for valuable units
+                        }
                         // Even unfavorable trade might be worth it if enemy is key target
                         else if (enemy.isHero || enemy.type === 'DRAGON') {
                             opportunityScore += 30; // Some value in damaging key units
+                            if (isEconomicallyDominant) {
+                                opportunityScore += 25; // Even more willing when ahead
+                            }
                         }
 
                         // Check if this move also progresses us toward our goal
@@ -822,6 +852,7 @@ export class AISystem {
 
     /**
      * Evaluate an attack target with advanced scoring (higher score = better target)
+     * Now includes economic advantage and coordinated attack assessment
      */
     evaluateAttackTarget(unit, enemyStack, targetX, targetY, player) {
         const enemy = enemyStack.getCombatUnit();
@@ -830,6 +861,11 @@ export class AISystem {
         let score = 0;
         const enemyDef = UNIT_DEFINITIONS[enemy.type];
         const myDef = UNIT_DEFINITIONS[unit.type];
+
+        // Get economic context
+        const economicAdvantage = this.calculateEconomicAdvantage(player);
+        const isEconomicallyDominant = economicAdvantage.cityRatio >= 1.5 || economicAdvantage.incomeRatio >= 1.5;
+        const isModeratelyAhead = economicAdvantage.cityRatio >= 1.2 || economicAdvantage.incomeRatio >= 1.3;
 
         // Priority based on enemy value (high-value targets)
         if (enemy.isHero) score += 100;
@@ -843,7 +879,8 @@ export class AISystem {
         // Check if we can kill it
         const terrainBonus = this.map.getDefenseBonus(targetX, targetY);
         const damage = CombatSystem.calculateDamage(unit, enemy, terrainBonus).damage;
-        if (damage >= enemy.hp) {
+        const canKill = damage >= enemy.hp;
+        if (canKill) {
             score += 60; // Kill bonus
 
             // Extra bonus for efficient kills (we take no damage)
@@ -854,27 +891,92 @@ export class AISystem {
         const myTerrainBonus = this.map.getDefenseBonus(unit.x, unit.y);
         const retaliationDamage = CombatSystem.calculateDamage(enemy, unit, myTerrainBonus).damage;
         const damageToMe = Math.min(unit.hp, retaliationDamage);
+        const wouldDie = damageToMe >= unit.hp;
 
         // Prefer fights where we deal more damage than we take
         const damageEfficiency = damage - damageToMe;
         score += damageEfficiency * 2;
 
-        // Avoid suicidal attacks (where we would die)
-        if (damageToMe >= unit.hp) {
+        // ECONOMIC ADVANTAGE: Adjust risk tolerance based on economic position
+        // When ahead, we're willing to take worse trades to maintain pressure
+        if (isEconomicallyDominant) {
+            // Reduce penalty for taking damage when we're economically ahead
+            // We can replace units faster than the enemy
+            score += damageToMe * 0.5; // Partial compensation for expected damage
+
+            // Even suicidal attacks have value if they kill a key unit
+            if (wouldDie && canKill) {
+                // When ahead, trading 1-for-1 is acceptable, trading up is good
+                const enemyValue = enemyDef.cost || 20;
+                const myValue = myDef.cost || 20;
+                if (enemyValue >= myValue || enemy.isHero || enemy.type === 'DRAGON') {
+                    score += 100; // Worth trading for high-value targets
+                }
+            }
+        } else if (isModeratelyAhead) {
+            // Moderate advantage: slightly more tolerant of damage
+            score += damageToMe * 0.25;
+        }
+
+        // Avoid suicidal attacks (where we would die) - unless economically justified
+        if (wouldDie) {
             // Only attack if we can kill and it's a high-value target
-            if (damage < enemy.hp || (!enemy.isHero && enemy.type !== 'DRAGON' && enemy.type !== 'CATAPULT')) {
-                score -= 200; // Strong penalty for suicidal attacks
+            if (!canKill || (!enemy.isHero && enemy.type !== 'DRAGON' && enemy.type !== 'CATAPULT')) {
+                // Even with economic advantage, don't throw away units for nothing
+                if (!isEconomicallyDominant || damage < enemy.hp * 0.5) {
+                    score -= 200; // Strong penalty for suicidal attacks
+                }
             }
         }
 
-        // City capture bonus
+        // CITY CAPTURE BONUS with coordinated attack assessment
         const city = this.map.getCity(targetX, targetY);
         if (city && city.owner !== unit.owner) {
+            const enemyOwner = this.players[city.owner];
+
             // Check if we can actually capture (kill all defenders)
-            if (damage >= enemy.hp) {
+            if (canKill) {
                 const remaining = this.map.getUnitsAt(targetX, targetY).filter(u => u.owner !== unit.owner && u.hp > 0);
                 if (remaining.length <= 1) {
                     score += 50; // Capture bonus
+
+                    // Extra bonus for capturing cities of weak enemies
+                    if (enemyOwner && enemyOwner.cities.length <= 2) {
+                        score += 100; // Finish them off!
+                    }
+                }
+            }
+
+            // COORDINATED ATTACK: Check if multiple units can take this city together
+            const coordinated = this.calculateCoordinatedAttackPotential(city, player, unit);
+            if (coordinated.canCapture && coordinated.isCoordinated) {
+                score += 80; // Bonus for being part of coordinated capture
+
+                // Even more bonus if this is a sacrifice play that enables capture
+                if (wouldDie && coordinated.pendingDamage >= coordinated.totalDefenseHp) {
+                    score += 120; // Worth dying to enable city capture!
+                }
+            }
+
+            // Economic advantage: willing to sacrifice units for cities
+            if (isEconomicallyDominant && coordinated.unitsInRange >= 2) {
+                // We're willing to trade units 2:1 or even 3:1 for a city when ahead
+                const cityValue = 50; // Approximate city value (income over time)
+                const unitCost = myDef.cost || 20;
+                const maxAcceptableLoss = Math.floor(cityValue / unitCost);
+
+                if (coordinated.unitsInRange <= maxAcceptableLoss + 1) {
+                    score += 60; // Acceptable trade
+                }
+            }
+
+            // Last city bonus - capturing this eliminates the player!
+            if (enemyOwner && enemyOwner.isAlive && enemyOwner.cities.length === 1) {
+                score += 300; // This wins the game!
+
+                // When economically ahead, even more aggressive
+                if (isEconomicallyDominant) {
+                    score += 200;
                 }
             }
         }
@@ -924,11 +1026,97 @@ export class AISystem {
     }
 
     /**
+     * Calculate total attack potential of all friendly units that can reach this city
+     * Used for coordinated attack assessment
+     */
+    calculateCoordinatedAttackPotential(city, player, thisUnit) {
+        const defenders = this.map.getUnitsAt(city.x, city.y).filter(u => u.owner !== player.id && u.hp > 0);
+        if (defenders.length === 0) return { canCapture: true, isCoordinated: false };
+
+        const totalDefenseHp = defenders.reduce((sum, d) => sum + d.hp, 0);
+        const totalDefensePower = defenders.reduce((sum, d) => sum + d.effectiveAttack + d.effectiveDefense, 0);
+
+        // Find all friendly units that can reach this city
+        let totalAttackPower = 0;
+        let unitsInRange = 0;
+        let pendingDamage = 0;
+
+        for (const unit of player.units) {
+            if (unit.hp <= 0 || unit === thisUnit) continue;
+            if (unit.hasMoved && unit.hasAttacked) continue;
+
+            const dist = Utils.manhattanDistance(unit.x, unit.y, city.x, city.y);
+            const unitDef = UNIT_DEFINITIONS[unit.type];
+            const maxRange = unitDef.movement + unitDef.range;
+
+            if (dist <= maxRange) {
+                unitsInRange++;
+                // Estimate damage this unit could deal
+                const terrainBonus = this.map.getDefenseBonus(city.x, city.y);
+                const damage = CombatSystem.calculateDamage(unit, defenders[0], terrainBonus).damage;
+                pendingDamage += damage;
+                totalAttackPower += unit.effectiveAttack + unit.hp;
+            }
+        }
+
+        // Add this unit's contribution
+        const thisUnitDamage = CombatSystem.calculateDamage(thisUnit, defenders[0], 0).damage;
+        pendingDamage += thisUnitDamage;
+        totalAttackPower += thisUnit.effectiveAttack + thisUnit.hp;
+        unitsInRange++;
+
+        // Can we win through coordinated attacks?
+        const canWinCoordinated = pendingDamage >= totalDefenseHp && unitsInRange >= defenders.length;
+        const individualWinChance = totalAttackPower > totalDefensePower * 0.8;
+
+        return {
+            canCapture: canWinCoordinated || individualWinChance,
+            isCoordinated: canWinCoordinated && unitsInRange > 1,
+            unitsInRange,
+            defendersCount: defenders.length,
+            pendingDamage,
+            totalDefenseHp,
+            // For sacrifice calculation: how much HP would we lose vs gain (city value)
+            isSacrificeWorthwhile: pendingDamage >= totalDefenseHp && unitsInRange <= defenders.length + 1
+        };
+    }
+
+    /**
+     * Calculate economic power ratio compared to weakest enemy
+     * Used to adjust aggression based on economic advantage
+     */
+    calculateEconomicAdvantage(player) {
+        const myIncome = this.calculateIncome(player);
+        const myCities = player.cities.length;
+
+        // Find weakest enemy
+        let minEnemyIncome = Infinity;
+        let minEnemyCities = Infinity;
+
+        for (const other of this.players) {
+            if (other.id === player.id || !other.isAlive) continue;
+
+            const otherIncome = this.calculateIncome(other);
+            const otherCities = other.cities.length;
+
+            minEnemyIncome = Math.min(minEnemyIncome, otherIncome);
+            minEnemyCities = Math.min(minEnemyCities, otherCities);
+        }
+
+        if (minEnemyIncome === Infinity) return { incomeRatio: 1, cityRatio: 1 };
+
+        return {
+            incomeRatio: myIncome / minEnemyIncome,
+            cityRatio: myCities / minEnemyCities
+        };
+    }
+
+    /**
      * Find the best strategic target for a unit based on priority:
      * 1. Neutral empty cities (easiest to capture, expand territory)
      * 2. Enemy empty cities (weaken opponent)
      * 3. Ruins (one-time bonus)
-     * 4. Enemy defended cities (conquest)
+     * 4. Enemy defended cities (conquest - with coordinated attack assessment)
      * @param {Unit} unit - the unit looking for a target
      * @param {Player} player - the player owning the unit
      * @param {number} fromX - optional x position to search from (defaults to unit.x)
@@ -941,6 +1129,11 @@ export class AISystem {
         const maxDistance = unit.movement * 3;
         const startX = fromX !== null ? fromX : unit.x;
         const startY = fromY !== null ? fromY : unit.y;
+
+        // Get economic context for aggression adjustment
+        const economicAdvantage = this.calculateEconomicAdvantage(player);
+        const isEconomicallyDominant = economicAdvantage.cityRatio >= 1.5 || economicAdvantage.incomeRatio >= 1.5;
+        const isNearingEndgame = player.cities.length >= 6; // Late game = more aggressive
 
         // 1. NEUTRAL EMPTY CITIES - highest priority for expansion
         for (const city of this.map.cities) {
@@ -976,6 +1169,10 @@ export class AISystem {
             if (defenders.length === 0) {
                 // Empty enemy city - high priority
                 score = 800 - dist * 5;
+                // Higher priority for cities of economically weak enemies (finish them off)
+                if (isEconomicallyDominant) {
+                    score += 200; // Extra bonus when we're ahead - finish the game!
+                }
             }
 
             if (score > bestScore) {
@@ -997,7 +1194,7 @@ export class AISystem {
             }
         }
 
-        // 4. ENEMY DEFENDED CITIES - fourth priority (if we can win)
+        // 4. ENEMY DEFENDED CITIES - fourth priority (with coordinated attack assessment)
         for (const city of this.map.cities) {
             if (city.owner === null || city.owner === player.id) continue;
 
@@ -1007,14 +1204,78 @@ export class AISystem {
             const defenders = this.map.getUnitsAt(city.x, city.y).filter(u => u.owner !== player.id && u.hp > 0);
 
             if (defenders.length > 0) {
+                // Check individual strength (old logic)
                 const defenseStrength = defenders.reduce((sum, d) => sum + d.effectiveDefense + d.hp, 0);
                 const ourStrength = unit.effectiveAttack + unit.hp;
 
+                // Check coordinated attack potential
+                const coordinated = this.calculateCoordinatedAttackPotential(city, player, unit);
+
+                // Determine if we should attack
+                let shouldAttack = false;
+                let isSacrificePlay = false;
+
                 if (ourStrength > defenseStrength * 0.8) {
+                    // Can win individually
+                    shouldAttack = true;
+                } else if (coordinated.canCapture) {
+                    // Can win through coordinated attacks
+                    shouldAttack = true;
+                    isSacrificePlay = coordinated.isSacrificeWorthwhile;
+                } else if (isEconomicallyDominant && coordinated.unitsInRange >= defenders.length) {
+                    // Economic advantage: willing to trade units to capture city
+                    // Even if we lose this unit, we can replace it faster
+                    shouldAttack = true;
+                    isSacrificePlay = true;
+                } else if (isNearingEndgame && coordinated.unitsInRange >= 2) {
+                    // Late game: more willing to sacrifice for progress
+                    shouldAttack = true;
+                    isSacrificePlay = true;
+                }
+
+                if (shouldAttack) {
                     let score = 400 - dist * 6;
+
+                    // Bonus for coordinated attacks (team play)
+                    if (coordinated.isCoordinated) {
+                        score += 100;
+                    }
+
+                    // When economically dominant, prioritize finishing off enemies
+                    if (isEconomicallyDominant) {
+                        const enemy = this.players[city.owner];
+                        if (enemy && enemy.cities.length <= 2) {
+                            // This could eliminate a player! High priority
+                            score += 300;
+                        } else {
+                            score += 100; // General bonus for aggressive expansion when ahead
+                        }
+                    }
+
+                    // Sacrifice plays get bonus when economically justified
+                    if (isSacrificePlay && isEconomicallyDominant) {
+                        score += 150; // Worth it to trade units for cities when we produce faster
+                    }
+
+                    // Check if this is the enemy's last city - EXTREMELY high priority
+                    const enemy = this.players[city.owner];
+                    if (enemy && enemy.isAlive && enemy.cities.length === 1) {
+                        score += 500; // This could win the game!
+                    }
+
                     if (score > bestScore) {
                         bestScore = score;
-                        bestTarget = { type: 'enemy_defended_city', x: city.x, y: city.y, city, defenders, priority: 4, distance: dist };
+                        bestTarget = {
+                            type: 'enemy_defended_city',
+                            x: city.x,
+                            y: city.y,
+                            city,
+                            defenders,
+                            priority: 4,
+                            distance: dist,
+                            isCoordinated: coordinated.isCoordinated,
+                            isSacrificePlay
+                        };
                     }
                 }
             }
