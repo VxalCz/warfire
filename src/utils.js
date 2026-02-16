@@ -16,7 +16,15 @@ export const Utils = {
         if (!condition) throw new Error(`Assertion failed: ${message}`);
     },
 
-    clamp: (val, min, max) => Math.max(min, Math.min(max, val))
+    clamp: (val, min, max) => Math.max(min, Math.min(max, val)),
+
+    shuffleArray: (array) => {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
 };
 
 export class EventBus {

@@ -288,7 +288,7 @@ export class MenuScene extends Phaser.Scene {
         container.add(background);
         container.add(textObj);
 
-        background.on('pointerdown', callback);
+        background.on('pointerdown', () => callback());
         background.on('pointerover', () => {
             background.setFillStyle(0x6b7280);
         });
@@ -496,7 +496,7 @@ export class MenuScene extends Phaser.Scene {
         container.add(background);
         container.add(textObj);
 
-        background.on('pointerdown', callback);
+        background.on('pointerdown', () => callback());
         background.on('pointerover', () => {
             background.setFillStyle(0x4a5568);
             textObj.setColor('#ffffff');
@@ -538,7 +538,7 @@ export class MenuScene extends Phaser.Scene {
             }
         };
 
-        background.on('pointerdown', callback);
+        background.on('pointerdown', () => callback());
         background.on('pointerover', () => {
             if (!isSelected) {
                 background.setFillStyle(0x4a5568);
