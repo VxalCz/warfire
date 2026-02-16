@@ -13,7 +13,7 @@ export class AISystem {
         this.map = game.map;
         this.players = game.players;
         this.isRunning = false;
-        this.thinkDelay = 500; // Delay between AI actions for visibility
+        this.thinkDelay = 200; // Delay between AI actions for visibility
 
         // Track which units attacked which targets this turn (for focus fire)
         this.focusFireMemory = new Map();
