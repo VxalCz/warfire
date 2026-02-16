@@ -161,7 +161,7 @@ export class MapGenerator {
             const heroX = pos.x + 1;
             const heroY = pos.y;
             const hero = new Unit('HERO', player.id, heroX, heroY);
-            this.map.units.push(hero);
+            this.map.addUnit(hero);
             player.units.push(hero);
 
             // Place light infantry around the city
@@ -178,7 +178,7 @@ export class MapGenerator {
                     if (p.x !== heroX || p.y !== heroY) {
                         this.map.terrain[p.y][p.x] = TERRAIN.PLAINS;
                         const li = new Unit('LIGHT_INFANTRY', player.id, p.x, p.y);
-                        this.map.units.push(li);
+                        this.map.addUnit(li);
                         player.units.push(li);
                         unitsPlaced++;
                     }

@@ -12,16 +12,36 @@ export class GameMap {
         this.ruins = [];
         this.units = [];
         this.decorations = []; // Visual-only decorative elements
+
+        // Spatial index for O(1) lookups (instead of O(n) find/filter)
+        this.cityGrid = [];
+        this.ruinGrid = [];
+        this.unitGrid = [];
+
         this.generate();
     }
 
     generate() {
+        // Initialize terrain
         for (let y = 0; y < this.height; y++) {
             this.terrain[y] = [];
             for (let x = 0; x < this.width; x++) {
                 this.terrain[y][x] = TERRAIN.PLAINS;
             }
         }
+
+        // Initialize spatial grids
+        for (let y = 0; y < this.height; y++) {
+            this.cityGrid[y] = [];
+            this.ruinGrid[y] = [];
+            this.unitGrid[y] = [];
+            for (let x = 0; x < this.width; x++) {
+                this.cityGrid[y][x] = null;
+                this.ruinGrid[y][x] = null;
+                this.unitGrid[y][x] = [];
+            }
+        }
+
         this.addPatches(TERRAIN.FOREST, 0.2);
         this.addPatches(TERRAIN.MOUNTAINS, 0.15);
         this.addPatches(TERRAIN.WATER, 0.05);
@@ -40,8 +60,8 @@ export class GameMap {
                 const terrain = this.terrain[y][x];
                 const seed = x * 37 + y * 73;
 
-                // Skip if there's a city or ruin here
-                if (this.getCity(x, y) || this.getRuin(x, y)) continue;
+                // Skip if there's a city or ruin here (use O(1) grid lookup)
+                if (this.cityGrid[y][x] || this.ruinGrid[y][x]) continue;
 
                 if (terrain === TERRAIN.PLAINS) {
                     // Rocks on plains (10% chance)
@@ -123,16 +143,23 @@ export class GameMap {
         return terrain === TERRAIN.MOUNTAINS ? 2 : 1;
     }
 
+    // O(1) lookup using spatial grid
     getCity(x, y) {
-        return this.cities.find(c => c.x === x && c.y === y);
+        if (!this.isValid(x, y)) return null;
+        return this.cityGrid[y][x];
     }
 
+    // O(1) lookup using spatial grid (only unexplored ruins)
     getRuin(x, y) {
-        return this.ruins.find(r => r.x === x && r.y === y && !r.explored);
+        if (!this.isValid(x, y)) return null;
+        const ruin = this.ruinGrid[y][x];
+        return ruin && !ruin.explored ? ruin : null;
     }
 
+    // O(1) lookup using spatial grid
     getUnitsAt(x, y) {
-        return this.units.filter(u => u.x === x && u.y === y && u.hp > 0);
+        if (!this.isValid(x, y)) return [];
+        return this.unitGrid[y][x].filter(u => u.hp > 0);
     }
 
     getStack(x, y) {
@@ -142,26 +169,71 @@ export class GameMap {
 
     moveUnit(unit, x, y) {
         Utils.assert(this.isValid(x, y), 'Invalid coordinates');
+
+        // Remove from old position in unit grid
+        if (this.isValid(unit.x, unit.y)) {
+            const oldIdx = this.unitGrid[unit.y][unit.x].indexOf(unit);
+            if (oldIdx > -1) {
+                this.unitGrid[unit.y][unit.x].splice(oldIdx, 1);
+            }
+        }
+
+        // Update unit position
+        const oldX = unit.x;
+        const oldY = unit.y;
         unit.x = x;
         unit.y = y;
         unit.hasMoved = true;
-        Events.emit('unit:moved', { unit, fromX: unit.x, fromY: unit.y, toX: x, toY: y });
-    }
 
-    removeUnit(unit) {
-        const idx = this.units.indexOf(unit);
-        if (idx > -1) {
-            this.units.splice(idx, 1);
-            Events.emit('unit:removed', { unit });
-        }
+        // Add to new position in unit grid
+        this.unitGrid[y][x].push(unit);
+
+        Events.emit('unit:moved', { unit, fromX: oldX, fromY: oldY, toX: x, toY: y });
     }
 
     addCity(city) {
         this.cities.push(city);
+        // Add to spatial grid
+        if (this.isValid(city.x, city.y)) {
+            this.cityGrid[city.y][city.x] = city;
+        }
+    }
+
+    /**
+     * Add a unit to the map (includes grid update)
+     */
+    addUnit(unit) {
+        this.units.push(unit);
+        if (this.isValid(unit.x, unit.y)) {
+            this.unitGrid[unit.y][unit.x].push(unit);
+        }
+    }
+
+    /**
+     * Remove a unit from the map (includes grid update)
+     */
+    removeUnit(unit) {
+        const idx = this.units.indexOf(unit);
+        if (idx > -1) {
+            this.units.splice(idx, 1);
+        }
+        // Remove from grid
+        if (this.isValid(unit.x, unit.y)) {
+            const gridIdx = this.unitGrid[unit.y][unit.x].indexOf(unit);
+            if (gridIdx > -1) {
+                this.unitGrid[unit.y][unit.x].splice(gridIdx, 1);
+            }
+        }
+        Events.emit('unit:removed', { unit });
     }
 
     addRuin(x, y) {
-        this.ruins.push({ x, y });
+        const ruin = { x, y, explored: false };
+        this.ruins.push(ruin);
+        // Add to spatial grid
+        if (this.isValid(x, y)) {
+            this.ruinGrid[y][x] = ruin;
+        }
     }
 
     /**
@@ -189,12 +261,11 @@ export class GameMap {
             const ny = y + dy;
 
             if (!this.isValid(nx, ny)) continue;
-            if (this.getCity(nx, ny)) continue;
-            if (this.getTerrain(nx, ny) === TERRAIN.WATER) continue;
+            if (this.cityGrid[ny][nx]) continue; // O(1) lookup
+            if (this.terrain[ny][nx] === TERRAIN.WATER) continue;
 
-            // Check if tile has any unit
-            const units = this.getUnitsAt(nx, ny);
-            if (units.length === 0) {
+            // Check if tile has any unit (O(1) lookup)
+            if (this.unitGrid[ny][nx].length === 0) {
                 freeTiles.push({ x: nx, y: ny });
             }
         }
@@ -211,6 +282,10 @@ export class GameMap {
         const idx = this.ruins.findIndex(r => r.x === x && r.y === y);
         if (idx > -1) {
             this.ruins.splice(idx, 1);
+            // Remove from grid
+            if (this.isValid(x, y)) {
+                this.ruinGrid[y][x] = null;
+            }
             Events.emit('ruin:removed', { x, y });
         }
     }
@@ -223,7 +298,7 @@ export class GameMap {
      * @returns {string|null} RUIN_REWARD_TYPES value or null if already explored/removed
      */
     exploreRuin(x, y) {
-        const ruin = this.ruins.find(r => r.x === x && r.y === y);
+        const ruin = this.ruinGrid[y][x]; // O(1) lookup
         if (!ruin) return null;
 
         const rewardType = this.getRandomRuinReward();
@@ -257,12 +332,46 @@ export class GameMap {
         for (const [dx, dy] of directions) {
             const nx = city.x + dx;
             const ny = city.y + dy;
-            const adjacentUnit = this.getUnitsAt(nx, ny).find(u => u.hp > 0 && u.owner !== ownerId);
-            if (adjacentUnit) {
+            if (!this.isValid(nx, ny)) continue;
+            // O(1) lookup instead of filter
+            const units = this.unitGrid[ny][nx];
+            if (units && units.some(u => u.hp > 0 && u.owner !== ownerId)) {
                 return true; // Enemy adjacent - city is blockaded
             }
         }
         return false;
+    }
+
+    /**
+     * Rebuild spatial grids from existing data (used after deserialization)
+     */
+    rebuildGrids() {
+        // Clear grids
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                this.cityGrid[y][x] = null;
+                this.ruinGrid[y][x] = null;
+                this.unitGrid[y][x] = [];
+            }
+        }
+        // Rebuild city grid
+        this.cities.forEach(city => {
+            if (this.isValid(city.x, city.y)) {
+                this.cityGrid[city.y][city.x] = city;
+            }
+        });
+        // Rebuild ruin grid
+        this.ruins.forEach(ruin => {
+            if (this.isValid(ruin.x, ruin.y)) {
+                this.ruinGrid[ruin.y][ruin.x] = ruin;
+            }
+        });
+        // Rebuild unit grid
+        this.units.forEach(unit => {
+            if (this.isValid(unit.x, unit.y)) {
+                this.unitGrid[unit.y][unit.x].push(unit);
+            }
+        });
     }
 
     serialize() {

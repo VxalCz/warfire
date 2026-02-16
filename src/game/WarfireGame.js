@@ -735,7 +735,7 @@ export class WarfireGame {
                     const newUnit = new Unit(randomType, unit.owner, spawnTile.x, spawnTile.y);
                     newUnit.hasMoved = true;
                     newUnit.hasAttacked = true;
-                    this.map.units.push(newUnit);
+                    this.map.addUnit(newUnit);
                     player.units.push(newUnit);
 
                     this.ui.showMessage(`Ruin found: ${UNIT_DEFINITIONS[randomType].name} joined!`);
@@ -873,7 +873,7 @@ export class WarfireGame {
         const unit = new Unit(unitType, player.id, spawnX, spawnY);
         unit.hasMoved = true;
         unit.hasAttacked = true;
-        this.map.units.push(unit);
+        this.map.addUnit(unit);
         player.units.push(unit);
         this.ui.showMessage(`Produced ${UNIT_DEFINITIONS[unitType].name}!`);
         this.renderer.renderUnits(this.map.units);
@@ -1058,6 +1058,9 @@ export class WarfireGame {
         });
         this.map.ruins = data.map.ruins;
         this.map.units = data.map.units.map(u => Unit.deserialize(u));
+
+        // Rebuild spatial grids for O(1) lookups
+        this.map.rebuildGrids();
 
         // Restore players
         this.players = data.players.map(p => {
