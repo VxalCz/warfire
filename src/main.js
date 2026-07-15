@@ -26,4 +26,16 @@ const config = {
     }
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+// Force game loop to run even when tab is not visible
+game.loop.skipInactive = false;
+
+// Prevent Phaser from auto-pausing when tab is hidden
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        game.events.emit('hidden');
+    } else {
+        game.events.emit('visible');
+    }
+});

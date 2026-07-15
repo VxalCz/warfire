@@ -39,11 +39,11 @@ export class WarfireGame {
             this.ui.showMessage(`${player.name} captured city!`);
         });
         Events.on('ai:turnEnded', () => {
-            // In spectator mode, check if we should auto-continue
             if (this.isSpectatorMode && !this.aiPaused) {
                 this.scheduleNextTurn();
             }
         });
+
     }
 
     initialize() {
@@ -61,6 +61,10 @@ export class WarfireGame {
         this.isSpectatorMode = playerConfigs.every(p => p.isAI);
         this.aiPaused = false;
         this.nextTurnTimer = null;
+        this.nextTurnAt = null;
+        this.gameSpeed = 1;
+        this.tickWorker = null;
+        // Note: this.ai is initialized below after map generation
 
         this.renderer.initialize();
 
@@ -106,6 +110,9 @@ export class WarfireGame {
 
         // Initialize AI system
         this.ai = new AISystem(this);
+
+        // Start background tick worker to keep AI running when tab is hidden
+        this.initTickWorker();
 
         this.renderer.renderMap(this.map, this.getBlockadedCities());
         this.renderer.renderUnits(this.map.units);
@@ -550,7 +557,9 @@ export class WarfireGame {
 
     deselect() {
         this.state.selectedEntity = null;
-        this.state.transition(GameState.PHASES.IDLE);
+        if (this.state.phase !== GameState.PHASES.IDLE) {
+            this.state.transition(GameState.PHASES.IDLE);
+        }
         this.renderer.clearHighlights();
         this.ui.hideProduction();
         this.ui.clearTileInfo();
@@ -573,24 +582,32 @@ export class WarfireGame {
         const targetX = x * CONFIG.TILE_SIZE;
         const targetY = y * CONFIG.TILE_SIZE;
 
-        // Animate movement if sprite exists
-        if (sprite && (oldX !== x || oldY !== y)) {
-            // Disable input during animation
+        // Animate movement if sprite exists and tab is visible
+        // Skip animation when hidden - Phaser tweens use rAF which is paused in background tabs
+        if (sprite && (oldX !== x || oldY !== y) && !document.hidden) {
             this.scene.input.enabled = false;
-
             await new Promise(resolve => {
+                let settled = false;
+                const finish = () => {
+                    if (settled) return;
+                    settled = true;
+                    sprite.x = targetX;
+                    sprite.y = targetY;
+                    resolve();
+                };
                 this.scene.tweens.add({
                     targets: sprite,
                     x: targetX,
                     y: targetY,
                     duration: 250,
                     ease: 'Quad.easeInOut',
-                    onComplete: resolve
+                    onComplete: finish
                 });
+                // Fallback: if the tab is hidden mid-tween, Phaser pauses and
+                // onComplete never fires - resolve anyway so the AI turn can't hang
+                setTimeout(finish, 600);
             });
-
-            // Re-enable input
-            this.scene.input.enabled = true;
+            this.scene.input.enabled = !this.isSpectatorMode;
         }
 
         // Update unit position
@@ -662,9 +679,8 @@ export class WarfireGame {
             const oldX = attacker.x;
             const oldY = attacker.y;
 
-            // Move attacker to the tile (just update coordinates - units array is global)
-            attacker.x = targetX;
-            attacker.y = targetY;
+            // Move attacker to the tile using map.moveUnit to keep spatial index in sync
+            this.map.moveUnit(attacker, targetX, targetY);
             attacker.hasMoved = true;
 
             // Check for city capture on the new tile
@@ -882,6 +898,9 @@ export class WarfireGame {
     }
 
     endTurn() {
+        // Don't proceed if game is over
+        if (this.state.phase === GameState.PHASES.GAME_OVER) return;
+
         const player = this.players[this.state.currentPlayerIndex];
 
         // Collect income
@@ -896,9 +915,18 @@ export class WarfireGame {
         // Next player
         this.state.nextPlayer(this.players.length);
 
-        // Skip dead players
-        while (!this.players[this.state.currentPlayerIndex].isAlive) {
+        // Skip dead players (with safety limit to prevent infinite loop)
+        let skipCount = 0;
+        const maxSkips = this.players.length;
+        while (skipCount < maxSkips && !this.players[this.state.currentPlayerIndex].isAlive) {
             this.state.nextPlayer(this.players.length);
+            skipCount++;
+        }
+
+        // If all players are dead, end game
+        if (skipCount >= maxSkips) {
+            this.state.transition(GameState.PHASES.GAME_OVER);
+            return;
         }
 
         this.deselect();
@@ -915,30 +943,102 @@ export class WarfireGame {
     }
 
     /**
+     * Initialize AI worker - runs AI decisions off the main thread
+     * This runs even when the browser tab is throttled
+     */
+    /**
+     * Initialize a simple tick worker that sends periodic messages.
+     * Worker postMessage is NOT throttled in background tabs, so this
+     * keeps the AI running even when the user switches away.
+     */
+    initTickWorker() {
+        try {
+            const blob = new Blob([`
+                let timerId = null;
+                self.onmessage = function(e) {
+                    if (e.data === 'start') {
+                        if (timerId) clearInterval(timerId);
+                        timerId = setInterval(() => self.postMessage('tick'), 500);
+                    } else if (e.data === 'stop') {
+                        if (timerId) { clearInterval(timerId); timerId = null; }
+                    }
+                };
+            `], { type: 'application/javascript' });
+            this.tickWorker = new Worker(URL.createObjectURL(blob));
+            this.tickWorker.onmessage = () => this.onBackgroundTick();
+            this.tickWorker.postMessage('start');
+        } catch (e) {
+            // Workers not available - background tabs will be slower
+            this.tickWorker = null;
+        }
+    }
+
+    /**
+     * Called by tick worker every 500ms (even in background tabs).
+     * Acts as a watchdog: fires overdue scheduled end-of-turns (setTimeout is
+     * throttled in background tabs) and starts the AI if it should be running.
+     */
+    onBackgroundTick() {
+        if (this.state.phase === GameState.PHASES.GAME_OVER) return;
+        if (!this.players || this.players.length === 0) return;
+        if (this.isSpectatorMode && this.aiPaused) return;
+
+        // A scheduled end-of-turn is overdue (its setTimeout got throttled) - fire it
+        if (this.nextTurnAt != null && Date.now() >= this.nextTurnAt) {
+            this.fireScheduledTurn();
+            return;
+        }
+
+        const currentPlayer = this.players[this.state.currentPlayerIndex];
+        if (!currentPlayer?.isAI || !currentPlayer.isAlive) return;
+        if (this.ai?.isRunning) return;
+
+        // AI should be running but isn't - start it (already-played turns are ignored)
+        this.startAITurn();
+    }
+
+    /**
+     * Key identifying the current turn of the current player
+     */
+    currentTurnKey() {
+        return `${this.state.turnNumber}:${this.state.currentPlayerIndex}`;
+    }
+
+    /**
+     * Start AI turn immediately (no setTimeout delay)
+     */
+    startAITurn() {
+        const currentPlayer = this.players[this.state.currentPlayerIndex];
+        if (!currentPlayer?.isAI || !currentPlayer.isAlive) return;
+        if (this.ai?.isRunning) return;
+        // Never replay a turn the AI already finished - in spectator mode the turn
+        // stays "open" until the scheduled endTurn fires, and background ticks
+        // would otherwise restart it (duplicate production, skipped units)
+        if (this.ai?.lastCompletedTurnKey === this.currentTurnKey()) return;
+
+        this.scene.input.enabled = false;
+
+        this.ai.playTurn().then(() => {
+            if (!this.isSpectatorMode) {
+                this.scene.input.enabled = true;
+            }
+        });
+    }
+
+    /**
      * Check if current player is AI and start their turn
      */
     checkAndStartAITurn() {
+        if (this.state.phase === GameState.PHASES.GAME_OVER) return;
+
         const currentPlayer = this.players[this.state.currentPlayerIndex];
-        if (currentPlayer.isAI && currentPlayer.isAlive && this.ai) {
-            // In spectator mode, respect pause state
+        if (currentPlayer.isAI && currentPlayer.isAlive) {
             if (this.isSpectatorMode && this.aiPaused) {
-                return; // Don't start AI turn while paused
+                return;
             }
 
-            // Disable input during AI turn (safety)
-            this.scene.input.enabled = false;
-            this.ui.showMessage(`${currentPlayer.name} (AI) is thinking...`, 2000);
-
-            // Start AI turn after a short delay
-            setTimeout(() => {
-                this.ai.playTurn().then(() => {
-                    // Only re-enable input if NOT in spectator mode
-                    // In spectator mode, input stays disabled (pure watching)
-                    if (!this.isSpectatorMode) {
-                        this.scene.input.enabled = true;
-                    }
-                });
-            }, 1000);
+            // Small delay so human can see the turn transition, then start AI
+            setTimeout(() => this.startAITurn(), document.hidden ? 0 : 500);
         }
     }
 
@@ -952,27 +1052,34 @@ export class WarfireGame {
         this.ui.setPaused(this.aiPaused);
 
         if (this.aiPaused) {
-            // Cancel any pending auto-turn
-            if (this.nextTurnTimer) {
-                clearTimeout(this.nextTurnTimer);
-                this.nextTurnTimer = null;
-            }
             this.ui.showMessage('PAUSED - Click RESUME to continue', 2000);
         } else {
-            // Resume - check if we should start AI turn immediately
             this.ui.showMessage('RESUMED', 1000);
-            const currentPlayer = this.players[this.state.currentPlayerIndex];
-            if (currentPlayer.isAI && currentPlayer.isAlive && !this.ai.isRunning) {
-                // In spectator mode, input stays disabled - AI plays automatically
+            // Restart the loop: finish the pending end-of-turn or start the AI
+            if (this.ai?.lastCompletedTurnKey === this.currentTurnKey()) {
+                this.scheduleNextTurn();
+            } else {
                 this.checkAndStartAITurn();
             }
         }
     }
 
     /**
-     * Schedule next turn in spectator mode with delay
+     * Set game speed for spectator mode
+     */
+    setGameSpeed(speed) {
+        this.gameSpeed = speed;
+    }
+
+
+    /**
+     * Schedule next turn in spectator mode with delay.
+     * Uses a timestamp (nextTurnAt) as the source of truth - the setTimeout is
+     * throttled in background tabs, so the tick worker fires overdue turns.
      */
     scheduleNextTurn() {
+        // Don't schedule if game is over
+        if (this.state.phase === GameState.PHASES.GAME_OVER) return;
         if (!this.isSpectatorMode || this.aiPaused) return;
 
         // Clear any existing timer
@@ -980,16 +1087,39 @@ export class WarfireGame {
             clearTimeout(this.nextTurnTimer);
         }
 
-        // Schedule next turn with 2 second delay for viewing
-        this.nextTurnTimer = setTimeout(() => {
+        // Pause between turns is for the viewer - skip it when nobody is watching
+        const delay = document.hidden ? 100 : 2000 / (this.gameSpeed || 1);
+        this.nextTurnAt = Date.now() + delay;
+        this.nextTurnTimer = setTimeout(() => this.fireScheduledTurn(), delay);
+    }
+
+    /**
+     * Execute a scheduled end-of-turn (from setTimeout or background tick)
+     */
+    fireScheduledTurn() {
+        if (this.nextTurnTimer) {
+            clearTimeout(this.nextTurnTimer);
             this.nextTurnTimer = null;
-            const currentPlayer = this.players[this.state.currentPlayerIndex];
-            // Only auto-continue if current player is AI and alive and not already running
-            if (currentPlayer.isAI && currentPlayer.isAlive && !this.ai.isRunning) {
-                this.endTurn();
-                // endTurn calls checkAndStartAITurn which starts next AI
-            }
-        }, 2000);
+        }
+        if (this.nextTurnAt == null) return; // Already fired
+        if (this.state.phase === GameState.PHASES.GAME_OVER || this.aiPaused) {
+            this.nextTurnAt = null;
+            return;
+        }
+
+        // AI still busy - retry shortly instead of silently dropping the end-of-turn
+        if (this.ai?.isRunning) {
+            this.nextTurnAt = Date.now() + 250;
+            this.nextTurnTimer = setTimeout(() => this.fireScheduledTurn(), 250);
+            return;
+        }
+
+        this.nextTurnAt = null;
+        const currentPlayer = this.players[this.state.currentPlayerIndex];
+        if (currentPlayer.isAI && currentPlayer.isAlive) {
+            this.endTurn();
+            // endTurn calls checkAndStartAITurn which starts next AI
+        }
     }
 
     checkWinCondition() {
@@ -1008,6 +1138,17 @@ export class WarfireGame {
         const alive = this.players.filter(p => p.isAlive);
         if (alive.length === 1) {
             this.state.transition(GameState.PHASES.GAME_OVER);
+            // Cancel any pending spectator turns (fallback)
+            if (this.nextTurnTimer) {
+                clearTimeout(this.nextTurnTimer);
+                this.nextTurnTimer = null;
+            }
+            // Stop tick worker
+            if (this.tickWorker) {
+                this.tickWorker.postMessage('stop');
+                this.tickWorker.terminate();
+                this.tickWorker = null;
+            }
             this.ui.showGameOver(alive[0]);
         }
     }
@@ -1077,6 +1218,15 @@ export class WarfireGame {
         this.state.turnNumber = data.turn;
         this.state.selectedEntity = null;
         this.state.phase = GameState.PHASES.IDLE;
+
+        // Recreate AI - it holds references to the replaced players array,
+        // and lastCompletedTurnKey must reset for the restored turn
+        this.ai = new AISystem(this);
+        this.nextTurnAt = null;
+        if (this.nextTurnTimer) {
+            clearTimeout(this.nextTurnTimer);
+            this.nextTurnTimer = null;
+        }
 
         this.renderer.renderMap(this.map, this.getBlockadedCities());
         this.renderer.renderUnits(this.map.units);

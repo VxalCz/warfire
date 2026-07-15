@@ -1,11 +1,15 @@
 import { Utils, Events } from '../utils.js';
 import { MovementSystem } from './MovementSystem.js';
 import { CombatSystem } from './CombatSystem.js';
+import { GameState } from './GameState.js';
+import { StrategyPlanner } from './StrategyPlanner.js';
+import { InfluenceMap } from './InfluenceMap.js';
 import { UNIT_DEFINITIONS, CITY_INCOME, TERRAIN } from '../constants.js';
 
 /**
  * AI system for controlling bot players
  * Implements turn-based strategy with tactical decisions
+ * Uses StrategyPlanner for high-level coordination and InfluenceMap for positioning
  */
 export class AISystem {
     constructor(game) {
@@ -14,9 +18,70 @@ export class AISystem {
         this.players = game.players;
         this.isRunning = false;
         this.thinkDelay = 200; // Delay between AI actions for visibility
+        // Key of the last fully played turn ("turnNumber:playerIndex") - prevents
+        // background ticks from replaying a turn that is waiting for its scheduled endTurn
+        this.lastCompletedTurnKey = null;
+
+        // Strategic planner for coordinated decisions
+        this.strategyPlanner = new StrategyPlanner(game);
+        this.currentPlan = null;
+
+        // Influence map for threat/safety assessment
+        this.influenceMap = new InfluenceMap(game.map, game.players);
 
         // Track which units attacked which targets this turn (for focus fire)
         this.focusFireMemory = new Map();
+
+        // Per-turn cache of BFS distance fields for objective navigation
+        this.distanceFieldCache = new Map();
+    }
+
+    /**
+     * BFS distance field (tile count over passable terrain) from a target tile.
+     * Cached per target + unit type for the duration of one AI turn.
+     */
+    getDistanceField(targetX, targetY, unitType) {
+        const key = `${targetX},${targetY}:${unitType}`;
+        let field = this.distanceFieldCache.get(key);
+        if (field) return field;
+
+        const width = this.map.width;
+        const height = this.map.height;
+        field = new Int32Array(width * height).fill(-1);
+
+        const queue = [targetY * width + targetX];
+        field[queue[0]] = 0;
+
+        for (let head = 0; head < queue.length; head++) {
+            const index = queue[head];
+            const x = index % width;
+            const y = (index / width) | 0;
+            const dist = field[index];
+
+            // 4-directional, matching MovementSystem
+            for (const [nx, ny] of [[x, y - 1], [x, y + 1], [x - 1, y], [x + 1, y]]) {
+                if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+                const ni = ny * width + nx;
+                if (field[ni] !== -1) continue;
+                if (this.map.getMovementCost(nx, ny, unitType) === Infinity) continue;
+                field[ni] = dist + 1;
+                queue.push(ni);
+            }
+        }
+
+        this.distanceFieldCache.set(key, field);
+        return field;
+    }
+
+    /**
+     * True path distance from (x, y) to an objective. Falls back to manhattan
+     * when the objective is unreachable for this unit type (e.g. across water),
+     * so units don't get stuck oscillating behind impassable terrain.
+     */
+    getObjectiveDistance(x, y, objective, unitType) {
+        const field = this.getDistanceField(objective.x, objective.y, unitType);
+        const d = field[y * this.map.width + x];
+        return d >= 0 ? d : Utils.manhattanDistance(x, y, objective.x, objective.y);
     }
 
     /**
@@ -32,31 +97,41 @@ export class AISystem {
             return;
         }
 
-        // Reset focus fire tracking for new turn
+        const turnKey = `${this.game.state.turnNumber}:${this.game.state.currentPlayerIndex}`;
+
+        // Reset per-turn state (focus fire tracking, pathfinding cache)
         this.focusFireMemory.clear();
+        this.distanceFieldCache.clear();
+
+        // Update influence map for strategic positioning
+        this.influenceMap.update(player.id, this.game.state.turnNumber || 1);
+
+        // Generate strategic plan for this turn
+        this.currentPlan = this.strategyPlanner.generatePlan(player);
+        console.log(`[AI] Plan for ${player.name}: phase=${this.currentPlan.phase}, objectives=${this.currentPlan.objectives.length}, assignments=${this.currentPlan.assignments.size}, production=${this.currentPlan.productionPlan.size}`);
 
         Events.emit('ai:turnStarted', { player });
 
         try {
-            // Phase 1: Handle city production
-            await this.handleProduction(player);
-
-            // Phase 2: Retreat damaged units first (before combat)
             await this.handleRetreats(player);
-
-            // Phase 3: Move and attack with units (sorted by tactical priority)
             await this.handleUnitActions(player);
-
-            // Phase 4: Hero actions (explore ruins, capture cities)
             await this.handleHeroActions(player);
-
-            // Small delay before ending turn
+            await this.handleProduction(player);
             await this.delay(this.thinkDelay);
-
         } catch (error) {
             console.error('AI error:', error);
         }
 
+        console.log(`[AI] Turn complete for ${player.name}, isSpectator=${this.game.isSpectatorMode}, currentPlayer=${this.game.state.currentPlayerIndex}`);
+
+        // Ensure game state is clean before ending turn
+        this.game.state.selectedEntity = null;
+        if (this.game.state.phase !== GameState.PHASES.IDLE) {
+            this.game.state.phase = GameState.PHASES.IDLE;
+        }
+
+        // Mark the turn as played BEFORE releasing isRunning so nothing can replay it
+        this.lastCompletedTurnKey = turnKey;
         this.isRunning = false;
         Events.emit('ai:turnEnded', { player });
 
@@ -68,26 +143,50 @@ export class AISystem {
 
     /**
      * Handle city production decisions with context-aware strategy
+     * Now uses StrategyPlanner's production plan when available
      */
     async handleProduction(player) {
         // Calculate economic situation
         const income = this.calculateIncome(player);
-        const turn = this.game.turn || 1;
-        const isLateGame = turn > 20;
 
-        // Get enemy army composition for counter-strategy
-        const enemyComposition = this.analyzeEnemyComposition(player);
-        const mapHasWater = this.analyzeMapTerrain();
+        // Spend gold in the plan's urgency order (front-line cities first);
+        // cities without a plan entry follow, ordered by front-line priority
+        const planOrder = this.currentPlan?.productionPlan
+            ? [...this.currentPlan.productionPlan.keys()]
+            : [];
+        const cities = [...player.cities].sort((a, b) => {
+            const ia = planOrder.indexOf(a.id);
+            const ib = planOrder.indexOf(b.id);
+            if (ia !== -1 && ib !== -1) return ia - ib;
+            if (ia !== -1) return -1;
+            if (ib !== -1) return 1;
+            return this.getCityProductionPriority(b, player) - this.getCityProductionPriority(a, player);
+        });
 
-        for (const city of player.cities) {
+        for (const city of cities) {
             // Check if city is blockaded - cannot produce if enemy adjacent
             if (this.map.isCityBlockaded(city, player.id)) {
                 Events.emit('ai:blockaded', { player, city });
                 continue; // Skip this city, it's under siege
             }
 
-            // Decide what to build based on comprehensive analysis
-            const unitType = this.decideProduction(player, income, isLateGame, enemyComposition, mapHasWater, city);
+            // Use strategic plan for production when available
+            let unitType = null;
+            if (this.currentPlan && this.currentPlan.productionPlan) {
+                unitType = this.currentPlan.productionPlan.get(city.id);
+            }
+
+            // Fallback to legacy production logic
+            if (!unitType) {
+                const enemyComposition = this.analyzeEnemyComposition(player);
+                const mapHasWater = this.analyzeMapTerrain();
+                const isLateGame = (this.game.state.turnNumber || 1) > 20;
+                unitType = this.decideProduction(player, income, isLateGame, enemyComposition, mapHasWater, city);
+            }
+
+            // Skip if no unit type selected (not enough gold)
+            if (!unitType) continue;
+
             const cost = UNIT_DEFINITIONS[unitType].cost;
 
             if (player.gold >= cost) {
@@ -187,138 +286,56 @@ export class AISystem {
     }
 
     decideProduction(player, income, isLateGame, enemyComposition, mapHasWater, city) {
-        const units = player.units;
         const gold = player.gold;
 
-        // Count unit types
-        const counts = {};
-        for (const type of Object.keys(UNIT_DEFINITIONS)) {
-            counts[type] = units.filter(u => u.type === type && u.hp > 0).length;
-        }
+        // Always build if we have gold - no limits, just prioritize needs
+        if (gold < 10) return null;
 
-        // Priority 0: Buy hero if we don't have one (heroes are now purchasable)
+        // Priority 0: Buy hero if we don't have one
         const hero = player.getHero();
         if (!hero && gold >= 50) {
             return 'HERO';
         }
 
-        // Check if this city is near front line
-        const isFrontLineCity = city ? this.isNearFrontLine(city.x, city.y, player) : false;
-        const cityPriority = city ? this.getCityProductionPriority(city, player) : 0;
-
-        // EMERGENCY: Check if we have blockaded cities and this city can produce defenders
-        const hasBlockadedCities = player.cities.some(c =>
-            this.map.isCityBlockaded(c, player.id) && c !== city
-        );
-
-        if (hasBlockadedCities && city && !this.map.isCityBlockaded(city, player.id)) {
-            // This city is NOT blockaded but others are - produce fast defenders!
-            if (gold >= 30 && counts.CAVALRY < 3) {
-                return 'CAVALRY'; // Fast unit to rush to defense
-            }
-            if (gold >= 10 && counts.LIGHT_INFANTRY < 4) {
-                return 'LIGHT_INFANTRY'; // Cheap unit to send help
-            }
-        }
-
-        // Priority 1: Counter-strategy against enemy composition
+        // Get enemy composition
         const enemyCavalry = enemyComposition.CAVALRY || 0;
-        const enemyArchers = enemyComposition.ARCHER || 0;
         const enemyHeavy = enemyComposition.HEAVY_INFANTRY || 0;
         const enemyDragons = enemyComposition.DRAGON || 0;
 
-        // If enemy has many cavalry (fast but low defense), build heavy infantry
-        if (enemyCavalry >= 2 && counts.HEAVY_INFANTRY < 3 && gold >= 20) {
+        // Priority 1: Counter enemy cavalry with heavy infantry
+        if (enemyCavalry >= 2 && gold >= 20) {
             return 'HEAVY_INFANTRY';
         }
 
-        // If enemy has many heavy infantry, build archers (kite them)
-        if (enemyHeavy >= 2 && counts.ARCHER < 3 && gold >= 15) {
+        // Priority 2: Counter enemy heavy infantry with archers
+        if (enemyHeavy >= 2 && gold >= 15) {
             return 'ARCHER';
         }
 
-        // If enemy has dragons, build archers or catapults for ranged damage
+        // Priority 3: Counter dragons with catapults
         if (enemyDragons >= 1 && gold >= 40) {
             return 'CATAPULT';
         }
 
-        // Priority 2: Map-based decisions
-        if (mapHasWater && counts.DRAGON < 1 && gold >= 100) {
-            return 'DRAGON'; // Dragons can fly over water
-        }
-
-        // Priority 3: Front-line production - build cheap units quickly at front
-        if (isFrontLineCity && cityPriority >= 40) {
-            // Front line needs units NOW - prioritize cheap and fast
-            if (counts.LIGHT_INFANTRY < 4 && gold >= 10) {
-                return 'LIGHT_INFANTRY';
-            }
-            if (counts.CAVALRY < 2 && gold >= 30) {
-                return 'CAVALRY'; // Fast response
-            }
-            if (gold >= 15 && counts.ARCHER < 2) {
-                return 'ARCHER'; // Ranged support
-            }
-        }
-
-        // Priority 4: Early game expansion
+        // Priority 4: Early game - prioritize cheap units for expansion
+        // But still build some variety based on gold amount
         if (!isLateGame) {
-            // Need cheap fast units for expansion
-            if (counts.LIGHT_INFANTRY < 2 && gold >= 10) {
-                return 'LIGHT_INFANTRY';
-            }
-            if (counts.CAVALRY < 1 && gold >= 30) {
-                return 'CAVALRY';
-            }
-        }
-
-        // Priority 6: Balanced army composition with role-based targets
-        // Adjust targets based on city position - front line cities want different units
-        let targetRanged = 2;
-        let targetCavalry = 2;
-        let targetHeavy = 2;
-
-        // Front line cities prefer defensive units
-        if (isFrontLineCity) {
-            targetHeavy = 3; // More heavy units for defense
-            targetRanged = 2;
-        }
-
-        const currentRanged = counts.ARCHER + counts.CATAPULT;
-        const currentCavalry = counts.CAVALRY;
-        const currentHeavy = counts.HEAVY_INFANTRY + counts.DRAGON;
-
-        if (currentRanged < targetRanged && gold >= 15) {
-            if (gold >= 40 && counts.CATAPULT < 1) return 'CATAPULT';
-            return 'ARCHER';
-        }
-
-        if (currentCavalry < targetCavalry && gold >= 30) {
-            return 'CAVALRY';
-        }
-
-        if (currentHeavy < targetHeavy) {
-            if (gold >= 100 && counts.DRAGON < 1) return 'DRAGON';
-            if (gold >= 20) return 'HEAVY_INFANTRY';
-        }
-
-        // Priority 8: Economic-based late game
-        if (isLateGame || income >= 30) {
-            if (gold >= 100) return 'DRAGON';
-            if (gold >= 40) return 'CATAPULT';
             if (gold >= 30) return 'CAVALRY';
-        }
-
-        // Priority 9: Emergency reserves
-        if (counts.LIGHT_INFANTRY < 1 && gold >= 10) {
+            if (gold >= 20) return 'HEAVY_INFANTRY';
+            if (gold >= 15) return 'ARCHER';
             return 'LIGHT_INFANTRY';
         }
 
-        // Fallback based on available gold
-        if (gold >= 40) return 'CATAPULT';
-        if (gold >= 30) return 'CAVALRY';
-        if (gold >= 20) return 'HEAVY_INFANTRY';
-        if (gold >= 15) return 'ARCHER';
+        // Priority 5: Late game - prioritize stronger units
+        if (isLateGame) {
+            if (gold >= 100) return 'DRAGON';
+            if (gold >= 40) return 'CATAPULT';
+            if (gold >= 30) return 'CAVALRY';
+            if (gold >= 20) return 'HEAVY_INFANTRY';
+            if (gold >= 15) return 'ARCHER';
+        }
+
+        // Fallback: always build something cheap
         return 'LIGHT_INFANTRY';
     }
 
@@ -337,7 +354,7 @@ export class AISystem {
             // Find safe retreat position
             const retreatTarget = this.findRetreatTarget(unit, player);
             if (retreatTarget) {
-                this.game.moveUnit(unit, retreatTarget.x, retreatTarget.y);
+                await this.game.moveUnit(unit, retreatTarget.x, retreatTarget.y);
                 await this.delay(300);
             }
         }
@@ -345,6 +362,7 @@ export class AISystem {
 
     /**
      * Find safe position to retreat to (towards own cities, away from enemies)
+     * Now uses influence map for better safety assessment
      */
     findRetreatTarget(unit, player) {
         const reachable = MovementSystem.getReachableTiles(unit, this.map);
@@ -387,13 +405,16 @@ export class AISystem {
                 }
             }
 
-            // Avoid enemies - penalize tiles near enemies
+            // Influence map: avoid high-threat areas, prefer safe zones
+            const threat = this.influenceMap.getThreatLevel(tile.x, tile.y);
+            const friendly = this.influenceMap.getFriendlyInfluence(tile.x, tile.y);
+            score -= threat * 15; // Heavy penalty for retreating into danger
+            score += friendly * 5; // Bonus for retreating toward friendly territory
+
+            // Still check immediate adjacency for enemies (fast local check)
             for (const otherUnit of this.map.units) {
                 if (otherUnit.owner !== player.id && otherUnit.hp > 0) {
-                    const enemyDist = Utils.manhattanDistance(tile.x, tile.y, otherUnit.x, otherUnit.y);
-                    if (enemyDist <= 2) {
-                        score -= 30; // Penalty for being near enemies
-                    }
+                    const enemyDist = Utils.chebyshevDistance(tile.x, tile.y, otherUnit.x, otherUnit.y);
                     if (enemyDist <= 1) {
                         score -= 100; // Heavy penalty for adjacency
                     }
@@ -414,6 +435,7 @@ export class AISystem {
 
     /**
      * Handle all unit movements and attacks with tactical priority
+     * Now uses strategic plan for coordinated action order
      */
     async handleUnitActions(player) {
         // Get current turn number for early game expansion prioritization
@@ -427,8 +449,200 @@ export class AISystem {
         for (const unit of units) {
             if (unit.hasMoved && unit.hasAttacked) continue;
 
-            await this.handleSingleUnit(unit, player);
+            // Check if unit has a strategic objective assignment
+            const assignment = this.currentPlan?.assignments?.get(unit.id);
+
+            if (assignment) {
+                await this.executeWithObjective(unit, player, assignment);
+            } else {
+                await this.handleSingleUnit(unit, player);
+            }
             await this.delay(200);
+        }
+    }
+
+    /**
+     * Execute a unit's turn with a strategic objective in mind
+     * Moves toward the objective, but still handles tactical combat opportunities
+     */
+    async executeWithObjective(unit, player, assignment) {
+        const def = UNIT_DEFINITIONS[unit.type];
+        const objective = assignment.objective;
+        const role = assignment.role;
+
+        // Garrison/defense duty: when standing on the objective, hold the position -
+        // attack adjacent enemies in place instead of moving out of the city
+        if (objective.type === 'DEFEND_CITY' && unit.x === objective.x && unit.y === objective.y) {
+            if (!unit.hasAttacked) {
+                const targets = MovementSystem.getAttackTargets(unit, this.map);
+                let bestDefense = null;
+                let bestDefenseScore = -Infinity;
+                for (const target of targets) {
+                    const enemyStack = this.map.getStack(target.x, target.y);
+                    if (enemyStack) {
+                        const score = this.evaluateAttackTarget(unit, enemyStack, target.x, target.y, player);
+                        if (score > bestDefenseScore) {
+                            bestDefenseScore = score;
+                            bestDefense = { target, enemyStack };
+                        }
+                    }
+                }
+                if (bestDefense) {
+                    const isRanged = Utils.chebyshevDistance(unit.x, unit.y, bestDefense.target.x, bestDefense.target.y) > 1;
+                    this.performTrackedAttack(unit, bestDefense.enemyStack, isRanged);
+                    await this.delay(400);
+                }
+            }
+            return;
+        }
+
+        // 1. Check for immediate attack opportunities from current position (tactical override)
+        const currentAttackTargets = MovementSystem.getAttackTargets(unit, this.map);
+        if (currentAttackTargets.length > 0 && !unit.hasAttacked) {
+            let bestAttack = null;
+            let bestScore = -Infinity;
+
+            for (const target of currentAttackTargets) {
+                const enemyStack = this.map.getStack(target.x, target.y);
+                if (enemyStack) {
+                    const score = this.evaluateAttackTarget(unit, enemyStack, target.x, target.y, player);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestAttack = { target, enemyStack, score };
+                    }
+                }
+            }
+
+            // Only take the attack if it's a good trade or aligns with objective
+            if (bestAttack && bestScore > 50) {
+                const isRanged = Utils.chebyshevDistance(unit.x, unit.y, bestAttack.target.x, bestAttack.target.y) > 1;
+
+                if (isRanged && def.range > 1) {
+                    // Ranged attack ends the unit's turn (attacking sets hasMoved)
+                    this.performTrackedAttack(unit, bestAttack.enemyStack, true);
+                    await this.delay(400);
+                    return;
+                } else if (!isRanged) {
+                    // Melee: check if attack advances our objective
+                    const distToObjBefore = this.getObjectiveDistance(unit.x, unit.y, objective, unit.type);
+                    const distToObjAfter = this.getObjectiveDistance(bestAttack.target.x, bestAttack.target.y, objective, unit.type);
+                    const advancesObjective = distToObjAfter < distToObjBefore;
+
+                    // Always attack if it's a kill or great trade
+                    if (bestScore >= 80 || advancesObjective) {
+                        // Melee attack via moveUnit
+                        await this.game.moveUnit(unit, bestAttack.target.x, bestAttack.target.y);
+                        await this.delay(300);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 2. Move toward objective
+        if (!unit.hasMoved) {
+            const reachable = MovementSystem.getReachableTiles(unit, this.map);
+            const validMoves = reachable.filter(t => {
+                const existingUnit = this.map.getUnitsAt(t.x, t.y).find(u => u.owner === player.id && u.hp > 0);
+                return !existingUnit && !t.isEnemy;
+            });
+
+            if (validMoves.length > 0) {
+                // Find the move that gets us closest to our objective
+                let bestMove = null;
+                let bestScore = -Infinity;
+                const priorityTarget = this.findPriorityTarget(unit, player);
+                // Path distance (BFS over passable terrain) so units route around
+                // water and mountains instead of hugging the straight line
+                const distBefore = this.getObjectiveDistance(unit.x, unit.y, objective, unit.type);
+
+                for (const tile of validMoves) {
+                    let score = 0;
+
+                    // Primary: move toward objective
+                    const distAfter = this.getObjectiveDistance(tile.x, tile.y, objective, unit.type);
+                    const progress = distBefore - distAfter;
+                    score += progress * 50; // Strong weight for approaching objective
+
+                    // Reaching the objective is extremely valuable
+                    if (distAfter === 0) {
+                        score += 500;
+                    } else if (distAfter <= 1) {
+                        score += 200;
+                    }
+
+                    // Role-specific positioning
+                    if (role === 'RANGED_SUPPORT' || role === 'RANGED_ATTACK') {
+                        // Ranged units: prefer to be at range from objective, not adjacent
+                        if (distAfter <= def.range && distAfter > 1) {
+                            score += 80;
+                        }
+                        if (distAfter <= 1) {
+                            score -= 30; // Don't want ranged units in melee
+                        }
+                    }
+
+                    if (role === 'FLANKER') {
+                        // Flankers: prefer approaching from different angle than other units
+                        const otherAssignedUnits = objective.assignedUnits || [];
+                        for (const other of otherAssignedUnits) {
+                            if (other.id === unit.id) continue;
+                            const otherDist = Utils.manhattanDistance(other.x, other.y, objective.x, objective.y);
+                            if (otherDist <= 3) {
+                                // Bonus for being on opposite side
+                                const myAngle = Math.atan2(tile.y - objective.y, tile.x - objective.x);
+                                const otherAngle = Math.atan2(other.y - objective.y, other.x - objective.x);
+                                const angleDiff = Math.abs(myAngle - otherAngle);
+                                if (angleDiff > Math.PI / 3) { // > 60 degrees apart
+                                    score += 30;
+                                }
+                            }
+                        }
+                    }
+
+                    // Use existing strategic move evaluation as a tiebreaker
+                    score += this.evaluateStrategicMove(unit, tile.x, tile.y, player, def.range > 1, def.movement >= 4, priorityTarget) * 0.3;
+
+                    // Prefer closer moves (less wasted movement)
+                    score -= tile.cost * 2;
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = tile;
+                    }
+                }
+
+                // Only move when it actually helps - a negative score means every
+                // reachable tile is worse than standing ground (e.g. at the objective)
+                if (bestMove && bestScore > 0) {
+                    await this.game.moveUnit(unit, bestMove.x, bestMove.y);
+                    await this.delay(300);
+
+                    // After moving, check for attack targets from new position
+                    if (!unit.hasAttacked) {
+                        const newAttackTargets = MovementSystem.getAttackTargets(unit, this.map);
+                        let bestPostAttack = null;
+                        let bestPostScore = -Infinity;
+
+                        for (const target of newAttackTargets) {
+                            const enemyStack = this.map.getStack(target.x, target.y);
+                            if (enemyStack) {
+                                const score = this.evaluateAttackTarget(unit, enemyStack, target.x, target.y, player);
+                                if (score > bestPostScore) {
+                                    bestPostScore = score;
+                                    bestPostAttack = { target, enemyStack };
+                                }
+                            }
+                        }
+
+                        if (bestPostAttack && bestPostScore > 0) {
+                            const isRanged = Utils.chebyshevDistance(unit.x, unit.y, bestPostAttack.target.x, bestPostAttack.target.y) > 1;
+                            this.performTrackedAttack(unit, bestPostAttack.enemyStack, isRanged);
+                            await this.delay(400);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -488,38 +702,12 @@ export class AISystem {
             }
         }
 
-        // For ranged units: prioritize kiting (attack from current position, then move away)
-        if (isRangedUnit && bestCurrentAttack && !unit.hasAttacked) {
+        // Attack from current position when there's a worthwhile target
+        // (attacking ends the unit's turn - move-then-attack is handled below)
+        if (bestCurrentAttack && !unit.hasAttacked && (isRangedUnit || bestCurrentAttack.score > 0)) {
             const isRanged = Utils.chebyshevDistance(unit.x, unit.y, bestCurrentAttack.target.x, bestCurrentAttack.target.y) > 1;
-            this.game.performAttack(unit, bestCurrentAttack.enemyStack, isRanged);
+            this.performTrackedAttack(unit, bestCurrentAttack.enemyStack, isRanged);
             await this.delay(400);
-
-            // After ranged attack, try to move to safer position (kiting)
-            if (!unit.hasMoved) {
-                const kiteTarget = this.findKitePosition(unit, bestCurrentAttack.target, player);
-                if (kiteTarget) {
-                    this.game.moveUnit(unit, kiteTarget.x, kiteTarget.y);
-                    await this.delay(300);
-                }
-            }
-            return;
-        }
-
-        // For melee units: attack from current position if good target
-        if (bestCurrentAttack && !unit.hasAttacked && bestCurrentAttack.score > 0) {
-            const isRanged = Utils.chebyshevDistance(unit.x, unit.y, bestCurrentAttack.target.x, bestCurrentAttack.target.y) > 1;
-            this.game.performAttack(unit, bestCurrentAttack.enemyStack, isRanged);
-            await this.delay(400);
-
-            // After melee attack, limited movement options
-            if (!unit.hasMoved) {
-                // Can still move if we haven't
-                const retreatTarget = this.findRetreatAfterAttack(unit, player);
-                if (retreatTarget) {
-                    this.game.moveUnit(unit, retreatTarget.x, retreatTarget.y);
-                    await this.delay(300);
-                }
-            }
             return;
         }
 
@@ -539,6 +727,12 @@ export class AISystem {
                 let bestOpportunityAttack = null;
                 let bestOpportunityScore = -Infinity;
 
+                // Context that does not depend on the candidate tile - compute once
+                const targetCity = this.findPriorityTarget(unit, player);
+                const economicAdv = this.calculateEconomicAdvantage(player);
+                const isEconomicallyDominant = economicAdv.cityRatio >= 1.5 || economicAdv.incomeRatio >= 1.5;
+                const isModeratelyAhead = economicAdv.cityRatio >= 1.2 || economicAdv.incomeRatio >= 1.3;
+
                 // Check all reachable positions for enemies we could attack from there
                 for (const moveTile of validMoves) {
                     const enemiesAtTile = this.map.getUnitsAt(moveTile.x, moveTile.y).filter(u => u.owner !== player.id && u.hp > 0);
@@ -549,11 +743,6 @@ export class AISystem {
                         const enemyDamage = CombatSystem.calculateDamage(enemy, unit, this.map.getDefenseBonus(moveTile.x, moveTile.y)).damage;
 
                         let opportunityScore = 0;
-
-                        // Get economic context for opportunity attack evaluation
-                        const economicAdv = this.calculateEconomicAdvantage(player);
-                        const isEconomicallyDominant = economicAdv.cityRatio >= 1.5 || economicAdv.incomeRatio >= 1.5;
-                        const isModeratelyAhead = economicAdv.cityRatio >= 1.2 || economicAdv.incomeRatio >= 1.3;
 
                         // Calculate if this trade is economically favorable
                         const enemyDef = UNIT_DEFINITIONS[enemy.type];
@@ -598,7 +787,6 @@ export class AISystem {
                         }
 
                         // Check if this move also progresses us toward our goal
-                        const targetCity = this.findPriorityTarget(unit, player);
                         if (targetCity) {
                             const distBefore = Utils.manhattanDistance(unit.x, unit.y, targetCity.x, targetCity.y);
                             const distAfter = Utils.manhattanDistance(moveTile.x, moveTile.y, targetCity.x, targetCity.y);
@@ -619,7 +807,7 @@ export class AISystem {
                     // Move to the tile (this will trigger combat)
                     const enemyStack = this.map.getStack(bestOpportunityAttack.tile.x, bestOpportunityAttack.tile.y);
                     if (enemyStack) {
-                        this.game.moveUnit(unit, bestOpportunityAttack.tile.x, bestOpportunityAttack.tile.y);
+                        await this.game.moveUnit(unit, bestOpportunityAttack.tile.x, bestOpportunityAttack.tile.y);
                         await this.delay(300);
 
                         // Attack from new position (or melee combat happens automatically)
@@ -629,7 +817,7 @@ export class AISystem {
                             await this.delay(200);
                         } else if (!unit.hasAttacked) {
                             // Ranged attack from new position
-                            this.game.performAttack(unit, enemyStack, true);
+                            this.performTrackedAttack(unit, enemyStack, true);
                             await this.delay(400);
                         }
                         return; // Done with this unit's turn
@@ -647,7 +835,7 @@ export class AISystem {
             const moveTarget = this.findBestMoveTarget(unit, validMoves, player, isRangedUnit);
 
             if (moveTarget) {
-                this.game.moveUnit(unit, moveTarget.x, moveTarget.y);
+                await this.game.moveUnit(unit, moveTarget.x, moveTarget.y);
                 await this.delay(300);
 
                 // After moving, check for attack targets from new position
@@ -669,7 +857,7 @@ export class AISystem {
 
                     if (bestPostMoveAttack && bestScore > 0) {
                         const isRanged = Utils.chebyshevDistance(unit.x, unit.y, bestPostMoveAttack.target.x, bestPostMoveAttack.target.y) > 1;
-                        this.game.performAttack(unit, bestPostMoveAttack.enemyStack, isRanged);
+                        this.performTrackedAttack(unit, bestPostMoveAttack.enemyStack, isRanged);
                         await this.delay(400);
                     }
                 }
@@ -729,7 +917,7 @@ export class AISystem {
                         const enemyStack = this.map.getStack(bestEnemy.x, bestEnemy.y);
                         if (enemyStack) {
                             const isRanged = Utils.chebyshevDistance(unit.x, unit.y, bestEnemy.x, bestEnemy.y) > 1;
-                            this.game.performAttack(unit, enemyStack, isRanged);
+                            this.performTrackedAttack(unit, enemyStack, isRanged);
                             await this.delay(400);
                             return true;
                         }
@@ -743,7 +931,7 @@ export class AISystem {
             if (dist === 1) {
                 const moveToCity = validMoves.find(t => t.x === city.x && t.y === city.y);
                 if (moveToCity) {
-                    this.game.moveUnit(unit, city.x, city.y);
+                    await this.game.moveUnit(unit, city.x, city.y);
                     await this.delay(300);
 
                     // Try to attack immediately after moving in
@@ -752,7 +940,7 @@ export class AISystem {
                         const enemyStack = this.map.getStack(adjacentEnemies[0].x, adjacentEnemies[0].y);
                         if (enemyStack) {
                             const isRanged = Utils.chebyshevDistance(unit.x, unit.y, adjacentEnemies[0].x, adjacentEnemies[0].y) > 1;
-                            this.game.performAttack(unit, enemyStack, isRanged);
+                            this.performTrackedAttack(unit, enemyStack, isRanged);
                             await this.delay(400);
                         }
                     }
@@ -768,7 +956,7 @@ export class AISystem {
                 });
 
                 if (moveTowardCity) {
-                    this.game.moveUnit(unit, moveTowardCity.x, moveTowardCity.y);
+                    await this.game.moveUnit(unit, moveTowardCity.x, moveTowardCity.y);
                     await this.delay(300);
                     return true;
                 }
@@ -776,78 +964,6 @@ export class AISystem {
         }
 
         return false; // No defense action taken
-    }
-
-    /**
-     * Find position to kite to after ranged attack (away from enemy, towards safety)
-     */
-    findKitePosition(unit, attackTarget, player) {
-        const reachable = MovementSystem.getReachableTiles(unit, this.map);
-
-        const validMoves = reachable.filter(t => {
-            const existingUnit = this.map.getUnitsAt(t.x, t.y).find(u => u.owner === player.id && u.hp > 0);
-            return !existingUnit && !t.isEnemy;
-        });
-
-        if (validMoves.length === 0) return null;
-
-        const scoredMoves = validMoves.map(tile => {
-            let score = 0;
-
-            // Move away from the target we just attacked
-            const distFromTarget = Utils.chebyshevDistance(tile.x, tile.y, attackTarget.x, attackTarget.y);
-            score += distFromTarget * 20; // Bonus for distance from attacked enemy
-
-            // But stay within attack range for next turn
-            const def = UNIT_DEFINITIONS[unit.type];
-            if (distFromTarget <= def.range && distFromTarget > 1) {
-                score += 30; // Sweet spot: in range but not adjacent
-            }
-
-            // Avoid other enemies
-            for (const otherUnit of this.map.units) {
-                if (otherUnit.owner !== player.id && otherUnit.hp > 0) {
-                    const enemyDist = Utils.chebyshevDistance(tile.x, tile.y, otherUnit.x, otherUnit.y);
-                    if (enemyDist <= 1) {
-                        score -= 50; // Avoid adjacency to any enemy
-                    }
-                }
-            }
-
-            // Prefer defensive terrain
-            const terrain = this.map.getTerrain(tile.x, tile.y);
-            if (terrain === TERRAIN.MOUNTAINS) score += 15;
-            if (terrain === TERRAIN.FOREST) score += 8;
-
-            return { ...tile, score };
-        });
-
-        scoredMoves.sort((a, b) => b.score - a.score);
-        return scoredMoves[0];
-    }
-
-    /**
-     * Find position to retreat to after melee attack (defensive position)
-     */
-    findRetreatAfterAttack(unit, player) {
-        const reachable = MovementSystem.getReachableTiles(unit, this.map);
-
-        const validMoves = reachable.filter(t => {
-            const existingUnit = this.map.getUnitsAt(t.x, t.y).find(u => u.owner === player.id && u.hp > 0);
-            return !existingUnit && !t.isEnemy;
-        });
-
-        if (validMoves.length === 0) return null;
-
-        // If unit is damaged, try to move away from enemies
-        const def = UNIT_DEFINITIONS[unit.type];
-        const healthPercent = unit.hp / def.hp;
-
-        if (healthPercent > 0.6) {
-            return null; // Healthy units stay in combat
-        }
-
-        return this.findRetreatTarget(unit, player);
     }
 
     /**
@@ -865,7 +981,6 @@ export class AISystem {
         // Get economic context
         const economicAdvantage = this.calculateEconomicAdvantage(player);
         const isEconomicallyDominant = economicAdvantage.cityRatio >= 1.5 || economicAdvantage.incomeRatio >= 1.5;
-        const isModeratelyAhead = economicAdvantage.cityRatio >= 1.2 || economicAdvantage.incomeRatio >= 1.3;
 
         // Priority based on enemy value (high-value targets)
         if (enemy.isHero) score += 100;
@@ -881,53 +996,12 @@ export class AISystem {
         const damage = CombatSystem.calculateDamage(unit, enemy, terrainBonus).damage;
         const canKill = damage >= enemy.hp;
         if (canKill) {
-            score += 60; // Kill bonus
-
-            // Extra bonus for efficient kills (we take no damage)
-            score += 20;
+            score += 100; // Kill bonus - very high, attacking is always worth it
         }
 
-        // DAMAGE EFFICIENCY: Calculate expected retaliation damage
-        const myTerrainBonus = this.map.getDefenseBonus(unit.x, unit.y);
-        const retaliationDamage = CombatSystem.calculateDamage(enemy, unit, myTerrainBonus).damage;
-        const damageToMe = Math.min(unit.hp, retaliationDamage);
-        const wouldDie = damageToMe >= unit.hp;
-
-        // Prefer fights where we deal more damage than we take
-        const damageEfficiency = damage - damageToMe;
-        score += damageEfficiency * 2;
-
-        // ECONOMIC ADVANTAGE: Adjust risk tolerance based on economic position
-        // When ahead, we're willing to take worse trades to maintain pressure
-        if (isEconomicallyDominant) {
-            // Reduce penalty for taking damage when we're economically ahead
-            // We can replace units faster than the enemy
-            score += damageToMe * 0.5; // Partial compensation for expected damage
-
-            // Even suicidal attacks have value if they kill a key unit
-            if (wouldDie && canKill) {
-                // When ahead, trading 1-for-1 is acceptable, trading up is good
-                const enemyValue = enemyDef.cost || 20;
-                const myValue = myDef.cost || 20;
-                if (enemyValue >= myValue || enemy.isHero || enemy.type === 'DRAGON') {
-                    score += 100; // Worth trading for high-value targets
-                }
-            }
-        } else if (isModeratelyAhead) {
-            // Moderate advantage: slightly more tolerant of damage
-            score += damageToMe * 0.25;
-        }
-
-        // Avoid suicidal attacks (where we would die) - unless economically justified
-        if (wouldDie) {
-            // Only attack if we can kill and it's a high-value target
-            if (!canKill || (!enemy.isHero && enemy.type !== 'DRAGON' && enemy.type !== 'CATAPULT')) {
-                // Even with economic advantage, don't throw away units for nothing
-                if (!isEconomicallyDominant || damage < enemy.hp * 0.5) {
-                    score -= 200; // Strong penalty for suicidal attacks
-                }
-            }
-        }
+        // Add bonus for any damage dealt - attacking is always beneficial since there's no retaliation!
+        // (In this game, attackers deal damage without taking damage in return)
+        score += Math.min(damage, enemy.hp) * 1.5; // Partial credit for non-lethal damage
 
         // CITY CAPTURE BONUS with coordinated attack assessment
         const city = this.map.getCity(targetX, targetY);
@@ -938,46 +1012,18 @@ export class AISystem {
             if (canKill) {
                 const remaining = this.map.getUnitsAt(targetX, targetY).filter(u => u.owner !== unit.owner && u.hp > 0);
                 if (remaining.length <= 1) {
-                    score += 50; // Capture bonus
+                    score += 100; // Capture bonus - very high priority
 
                     // Extra bonus for capturing cities of weak enemies
                     if (enemyOwner && enemyOwner.cities.length <= 2) {
-                        score += 100; // Finish them off!
+                        score += 150; // Finish them off!
                     }
-                }
-            }
-
-            // COORDINATED ATTACK: Check if multiple units can take this city together
-            const coordinated = this.calculateCoordinatedAttackPotential(city, player, unit);
-            if (coordinated.canCapture && coordinated.isCoordinated) {
-                score += 80; // Bonus for being part of coordinated capture
-
-                // Even more bonus if this is a sacrifice play that enables capture
-                if (wouldDie && coordinated.pendingDamage >= coordinated.totalDefenseHp) {
-                    score += 120; // Worth dying to enable city capture!
-                }
-            }
-
-            // Economic advantage: willing to sacrifice units for cities
-            if (isEconomicallyDominant && coordinated.unitsInRange >= 2) {
-                // We're willing to trade units 2:1 or even 3:1 for a city when ahead
-                const cityValue = 50; // Approximate city value (income over time)
-                const unitCost = myDef.cost || 20;
-                const maxAcceptableLoss = Math.floor(cityValue / unitCost);
-
-                if (coordinated.unitsInRange <= maxAcceptableLoss + 1) {
-                    score += 60; // Acceptable trade
                 }
             }
 
             // Last city bonus - capturing this eliminates the player!
             if (enemyOwner && enemyOwner.isAlive && enemyOwner.cities.length === 1) {
                 score += 300; // This wins the game!
-
-                // When economically ahead, even more aggressive
-                if (isEconomicallyDominant) {
-                    score += 200;
-                }
             }
         }
 
@@ -992,17 +1038,24 @@ export class AISystem {
             }
         }
 
-        // Focus fire coordination: bonus if other units are targeting this enemy
+        // Focus fire coordination: bonus if other units already attacked this enemy
         const enemyKey = `${targetX},${targetY}`;
         const focusCount = this.focusFireMemory.get(enemyKey) || 0;
         if (focusCount > 0) {
-            score += 15; // Bonus for focusing fire
+            score += 15 * Math.min(focusCount, 3); // Bonus for focusing fire
         }
 
-        // Record that we're considering attacking this target
-        this.focusFireMemory.set(enemyKey, focusCount + 1);
-
         return score;
+    }
+
+    /**
+     * Perform an attack and record the target for focus-fire coordination
+     * (recording happens only on actual attacks, not during target evaluation)
+     */
+    performTrackedAttack(unit, enemyStack, isRanged) {
+        const enemyKey = `${enemyStack.x},${enemyStack.y}`;
+        this.focusFireMemory.set(enemyKey, (this.focusFireMemory.get(enemyKey) || 0) + 1);
+        this.game.performAttack(unit, enemyStack, isRanged);
     }
 
     /**
@@ -1013,9 +1066,10 @@ export class AISystem {
 
         const def = UNIT_DEFINITIONS[unit.type];
         const isFastUnit = def.movement >= 4;
+        const priorityTarget = this.findPriorityTarget(unit, player);
 
         const scoredMoves = validMoves.map(tile => {
-            let score = this.evaluateStrategicMove(unit, tile.x, tile.y, player, isRangedUnit, isFastUnit);
+            let score = this.evaluateStrategicMove(unit, tile.x, tile.y, player, isRangedUnit, isFastUnit, priorityTarget);
             // Prefer closer moves (less wasted movement)
             score -= tile.cost * 1.5;
             return { ...tile, score };
@@ -1233,8 +1287,11 @@ export class AISystem {
                     isSacrificePlay = true;
                 }
 
+                // FALLBACK: Always add defended city as target (even if can't win)
+                // This ensures units move toward enemy cities even when outmatched
+                let score;
                 if (shouldAttack) {
-                    let score = 400 - dist * 6;
+                    score = 400 - dist * 6;
 
                     // Bonus for coordinated attacks (team play)
                     if (coordinated.isCoordinated) {
@@ -1262,22 +1319,53 @@ export class AISystem {
                     if (enemy && enemy.isAlive && enemy.cities.length === 1) {
                         score += 500; // This could win the game!
                     }
+                } else {
+                    // Even if can't capture, still approach - can still attack nearby enemies
+                    score = 200 - dist * 8;
+                }
 
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestTarget = {
-                            type: 'enemy_defended_city',
-                            x: city.x,
-                            y: city.y,
-                            city,
-                            defenders,
-                            priority: 4,
-                            distance: dist,
-                            isCoordinated: coordinated.isCoordinated,
-                            isSacrificePlay
-                        };
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestTarget = {
+                        type: 'enemy_defended_city',
+                        x: city.x,
+                        y: city.y,
+                        city,
+                        defenders,
+                        priority: shouldAttack ? 4 : 5,
+                        distance: dist,
+                        isCoordinated: coordinated.isCoordinated,
+                        isSacrificePlay
+                    };
+                }
+            }
+        }
+
+        // Fallback: If no city/ruin target found, find nearest enemy unit as target
+        // This ensures units always have a goal even when they can't capture cities
+        if (!bestTarget) {
+            let nearestEnemyUnit = null;
+            let minEnemyDist = Infinity;
+
+            for (const unit of this.map.units) {
+                if (unit.owner !== player.id && unit.hp > 0) {
+                    const dist = Utils.manhattanDistance(startX, startY, unit.x, unit.y);
+                    if (dist < minEnemyDist && dist <= maxDistance * 2) {
+                        minEnemyDist = dist;
+                        nearestEnemyUnit = unit;
                     }
                 }
+            }
+
+            if (nearestEnemyUnit) {
+                bestTarget = {
+                    type: 'enemy_unit',
+                    x: nearestEnemyUnit.x,
+                    y: nearestEnemyUnit.y,
+                    unit: nearestEnemyUnit,
+                    priority: 5,
+                    distance: minEnemyDist
+                };
             }
         }
 
@@ -1322,7 +1410,7 @@ export class AISystem {
     /**
      * Evaluate strategic value of a position with improved priorities
      */
-    evaluateStrategicMove(unit, x, y, player, isRangedUnit, isFastUnit) {
+    evaluateStrategicMove(unit, x, y, player, isRangedUnit, isFastUnit, priorityTarget = null) {
         let score = 0;
         const def = UNIT_DEFINITIONS[unit.type];
 
@@ -1380,9 +1468,8 @@ export class AISystem {
         }
 
         // 2. PRIORITY TARGET SYSTEM: Follow the priority list
-        // Find target from current position and from potential new position
-        const priorityTargetFromCurrent = this.findPriorityTarget(unit, player);
-        const priorityTargetFromNew = this.findPriorityTarget(unit, player, x, y);
+        // Target is computed once per unit by the caller - it does not depend on the candidate tile
+        const priorityTargetFromCurrent = priorityTarget;
 
         if (priorityTargetFromCurrent) {
             const distToTarget = Utils.manhattanDistance(x, y, priorityTargetFromCurrent.x, priorityTargetFromCurrent.y);
@@ -1405,14 +1492,6 @@ export class AISystem {
                     case 4: score += 50; break;  // Enemy defended city
                 }
             }
-
-            // Additional bonus if we're moving toward the best target from new position
-            if (priorityTargetFromNew &&
-                priorityTargetFromNew.x === priorityTargetFromCurrent.x &&
-                priorityTargetFromNew.y === priorityTargetFromCurrent.y) {
-                // We're still targeting the same city from new position - good
-                score += 20;
-            }
         }
 
         // 3. RUIN EXPLORATION - any unit can now explore ruins
@@ -1433,16 +1512,9 @@ export class AISystem {
                 // ENEMY EMPTY - high priority
                 score += 120;
             } else if (defenders.length > 0) {
-                // Defended city - check odds
-                const defenseStrength = defenders.reduce((sum, d) => sum + d.hp + d.effectiveDefense, 0);
-                const ourStrength = unit.hp + unit.effectiveAttack;
-                if (ourStrength > defenseStrength * 1.2) {
-                    score += 80;
-                } else if (ourStrength > defenseStrength * 0.8) {
-                    score += 40;
-                } else {
-                    score -= 40;
-                }
+                // Defended city - always worth approaching since attacks are free (no retaliation)
+                // No penalty - attacking is always beneficial
+                score += 30;
             }
         }
 
@@ -1548,14 +1620,7 @@ export class AISystem {
             }
         }
 
-        // 7. EXPLORATION: All units can explore ruins now
-        const nearbyRuin = this.map.getRuin(x, y);
-        if (nearbyRuin) {
-            // Higher bonus for units already on ruin tile
-            score += 70;
-        }
-
-        // 8. FRONT LINE CONSTRUCTION: Bonus for being near front line
+        // 7. FRONT LINE CONSTRUCTION: Bonus for being near front line
         // This encourages building units closer to where they're needed
         if (this.isNearFrontLine(x, y, player)) {
             score += 20; // General bonus for front line presence
@@ -1601,43 +1666,7 @@ export class AISystem {
             }
 
             // 9b. OPPORTUNITY TARGETS: Check for interesting things along the way
-            // If we're moving toward a city, check if current position has something valuable
-
-            // Opportunity: Ruin on current tile
-            const ruinHere = this.map.getRuin(x, y);
-            if (ruinHere) {
-                score += 85; // High bonus - same as direct ruin bonus
-            }
-
-            // Opportunity: Empty neutral city on current tile (different from our main target)
-            const cityHere = this.map.getCity(x, y);
-            if (cityHere && cityHere.owner === null) {
-                const defendersHere = this.map.getUnitsAt(cityHere.x, cityHere.y).filter(u => u.hp > 0);
-                if (defendersHere.length === 0) {
-                    score += 120; // Good bonus for capturing any neutral city
-                }
-            }
-
-            // Opportunity: Enemy unit we can attack from here
-            if (!unit.hasAttacked) {
-                const enemyHere = this.map.getUnitsAt(x, y).find(u => u.owner !== player.id && u.hp > 0);
-                if (enemyHere) {
-                    // Calculate if we can win
-                    const myDamage = CombatSystem.calculateDamage(unit, enemyHere, 0).damage;
-                    const enemyDamage = CombatSystem.calculateDamage(enemyHere, unit, this.map.getDefenseBonus(x, y)).damage;
-
-                    if (myDamage >= enemyHere.hp) {
-                        // We can kill them - great opportunity!
-                        score += 90;
-                    } else if (myDamage > enemyDamage) {
-                        // Favorable trade
-                        score += 50;
-                    } else if (!unit.isHero && unit.hp > enemyDamage * 2) {
-                        // We can survive even if trade is not great
-                        score += 25;
-                    }
-                }
-            }
+            // (the ruin and city bonuses for the tile itself are handled in sections 3 and 4)
 
             // Opportunity: Check if we're passing close to another neutral city
             for (const otherCity of this.map.cities) {
@@ -1724,6 +1753,34 @@ export class AISystem {
             }
         }
 
+        // 10. INFLUENCE MAP: Use strategic positioning from influence map
+        const threat = this.influenceMap.getThreatLevel(x, y);
+        const friendly = this.influenceMap.getFriendlyInfluence(x, y);
+
+        // High threat areas are dangerous for damaged units
+        if (threat > 5) {
+            const healthPercent = unit.hp / def.hp;
+            if (healthPercent < 0.5) {
+                score -= threat * 3; // Damaged units avoid high-threat areas
+            } else if (healthPercent < 0.8) {
+                score -= threat * 1.5; // Slightly damaged units are cautious
+            }
+            // Healthy units can push into threat if attacking
+        } else if (threat < -3) {
+            // Safe area (friendly dominance)
+            score += 5; // Small bonus for safe positioning
+        }
+
+        // Ranged units specifically benefit from friendly influence (screened positions)
+        if (isRangedUnit && friendly > 3) {
+            score += friendly * 2; // Ranged units want friendly support nearby
+        }
+
+        // Defensive units want high-threat areas they can hold
+        if (def.defense >= 4 && threat > 0 && threat < 5) {
+            score += 10; // Tanks can hold contested ground
+        }
+
         return score;
     }
 
@@ -1767,15 +1824,6 @@ export class AISystem {
             }
         }
         return enemies;
-    }
-
-    /**
-     * Prioritize units for action order (stronger units first)
-     * @deprecated Use prioritizeUnitForAction instead
-     */
-    prioritizeUnit(unit) {
-        const def = UNIT_DEFINITIONS[unit.type];
-        return def.attack + def.defense + def.hp / 10;
     }
 
     /**
@@ -1850,7 +1898,7 @@ export class AISystem {
                         const enemyStack = this.map.getStack(bestEnemy.x, bestEnemy.y);
                         if (enemyStack) {
                             const isRanged = Utils.chebyshevDistance(hero.x, hero.y, bestEnemy.x, bestEnemy.y) > 1;
-                            this.game.performAttack(hero, enemyStack, isRanged);
+                            this.performTrackedAttack(hero, enemyStack, isRanged);
                             await this.delay(400);
                             return;
                         }
@@ -1864,7 +1912,7 @@ export class AISystem {
             if (dist === 1) {
                 const canMoveIn = validMoves.find(t => t.x === blockadedCity.x && t.y === blockadedCity.y);
                 if (canMoveIn) {
-                    this.game.moveUnit(hero, blockadedCity.x, blockadedCity.y);
+                    await this.game.moveUnit(hero, blockadedCity.x, blockadedCity.y);
                     await this.delay(300);
 
                     // Attack immediately after moving in
@@ -1872,7 +1920,7 @@ export class AISystem {
                     if (adjacentEnemies.length > 0 && !hero.hasAttacked) {
                         const enemyStack = this.map.getStack(adjacentEnemies[0].x, adjacentEnemies[0].y);
                         if (enemyStack) {
-                            this.game.performAttack(hero, enemyStack, false);
+                            this.performTrackedAttack(hero, enemyStack, false);
                             await this.delay(400);
                         }
                     }
@@ -1888,7 +1936,7 @@ export class AISystem {
                 });
 
                 if (moveToward) {
-                    this.game.moveUnit(hero, moveToward.x, moveToward.y);
+                    await this.game.moveUnit(hero, moveToward.x, moveToward.y);
                     await this.delay(300);
                     return;
                 }
@@ -1900,6 +1948,7 @@ export class AISystem {
         if (!hero.hasAttacked) {
             let bestOpportunity = null;
             let bestOppScore = -Infinity;
+            const priorityTarget = this.findPriorityTarget(hero, player);
 
             for (const moveTile of validMoves) {
                 // Check for enemies at this tile
@@ -1933,7 +1982,6 @@ export class AISystem {
                     }
 
                     // Check if this move progresses us toward a city
-                    const priorityTarget = this.findPriorityTarget(hero, player);
                     if (priorityTarget) {
                         const distBefore = Utils.manhattanDistance(hero.x, hero.y, priorityTarget.x, priorityTarget.y);
                         const distAfter = Utils.manhattanDistance(moveTile.x, moveTile.y, priorityTarget.x, priorityTarget.y);
@@ -1959,7 +2007,7 @@ export class AISystem {
             if (bestOpportunity && bestOppScore >= 70) {
                 const enemyStack = this.map.getStack(bestOpportunity.tile.x, bestOpportunity.tile.y);
                 if (enemyStack) {
-                    this.game.moveUnit(hero, bestOpportunity.tile.x, bestOpportunity.tile.y);
+                    await this.game.moveUnit(hero, bestOpportunity.tile.x, bestOpportunity.tile.y);
                     await this.delay(300);
 
                     // If enemy survived and we're in melee range, attack again
@@ -1985,7 +2033,7 @@ export class AISystem {
         });
 
         if (neutralCityTile) {
-            this.game.moveUnit(hero, neutralCityTile.x, neutralCityTile.y);
+            await this.game.moveUnit(hero, neutralCityTile.x, neutralCityTile.y);
             await this.delay(300);
             return;
         }
@@ -1999,7 +2047,7 @@ export class AISystem {
         });
 
         if (enemyCityTile) {
-            this.game.moveUnit(hero, enemyCityTile.x, enemyCityTile.y);
+            await this.game.moveUnit(hero, enemyCityTile.x, enemyCityTile.y);
             await this.delay(300);
             return;
         }
@@ -2007,7 +2055,7 @@ export class AISystem {
         // Priority 3: Explore ruins (if safe)
         const ruin = safeMoves.find(t => this.map.getRuin(t.x, t.y));
         if (ruin) {
-            this.game.moveUnit(hero, ruin.x, ruin.y);
+            await this.game.moveUnit(hero, ruin.x, ruin.y);
             await this.delay(300);
             return;
         }
@@ -2015,7 +2063,7 @@ export class AISystem {
         // Priority 4: Stay near friendly units for protection
         const supportiveMove = this.findSupportivePosition(hero, safeMoves, player);
         if (supportiveMove) {
-            this.game.moveUnit(hero, supportiveMove.x, supportiveMove.y);
+            await this.game.moveUnit(hero, supportiveMove.x, supportiveMove.y);
             await this.delay(300);
             return;
         }
@@ -2024,7 +2072,7 @@ export class AISystem {
         if (safeMoves.length > 0) {
             const moveTarget = this.findBestMoveTarget(hero, safeMoves, player, false);
             if (moveTarget) {
-                this.game.moveUnit(hero, moveTarget.x, moveTarget.y);
+                await this.game.moveUnit(hero, moveTarget.x, moveTarget.y);
                 await this.delay(300);
             }
         }
@@ -2113,8 +2161,17 @@ export class AISystem {
 
     /**
      * Utility: delay for async operations
+     * Uses 0ms when tab is hidden to avoid browser throttling
      */
     delay(ms) {
+        if (document.hidden) {
+            // Use MessageChannel to bypass setTimeout throttling in background tabs
+            return new Promise(resolve => {
+                const ch = new MessageChannel();
+                ch.port1.onmessage = () => { ch.port1.close(); resolve(); };
+                ch.port2.postMessage(null);
+            });
+        }
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
