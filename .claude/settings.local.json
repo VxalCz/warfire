@@ -2,7 +2,40 @@
   "permissions": {
     "allow": [
       "Bash(npm run build)",
-      "Bash(ls -la *.md)"
+      "Bash(ls -la *.md)",
+      "Bash(git config user.name)",
+      "Bash(git config user.email)",
+      "Bash(git add .github/workflows/deploy.yml)",
+      "Bash(git commit -m \"Add GitHub Pages deployment workflow\")",
+      "Bash(git push origin master)",
+      "Bash(git commit -m \"Fix GitHub Pages deployment workflow\")",
+      "Bash(git add vite.config.js)",
+      "Bash(git commit -m \"Add Vite config with correct base path for GitHub Pages\")",
+      "Bash(git add -A)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nMobile optimization and gameplay improvements\n\n- Add responsive scaling with Phaser Scale FIT mode\n- Update CSS for mobile touch prevention \\(no zoom, no text select\\)\n- Various gameplay improvements and bug fixes\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add index.html src/main.js)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix mobile centering issues\n\n- Use 100dvh for proper mobile viewport height\n- Remove flex centering, let Phaser handle centering\n- Add expandParent to scale config\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix vertical centering on mobile\n\n- Use align-items: flex-start to align canvas to top\n- Change Phaser center to CENTER_HORIZONTALLY only\n- Canvas now fills from top instead of center\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add src/systems/RenderSystem.js src/game/WarfireGame.js)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd pinch zoom and mouse wheel zoom\n\n- Add zoom support to RenderSystem with zoomAt for point zooming\n- Add pinch zoom for mobile \\(2-finger gesture\\)\n- Add mouse wheel zoom for desktop\n- Update screenToTile to account for zoom level\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add src/main.js src/game/WarfireGame.js)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix pinch zoom for mobile\n\n- Add activePointers: 2 to Phaser config for multi-touch support\n- Fix pointer tracking using manual array instead of non-existent getActivePointers\\(\\)\n- Track pointer down/move/up events properly for pinch detection\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add src/constants.js)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nIncrease viewport size on mobile devices\n\n- Add mobile detection via user agent\n- Use smaller UI width on mobile \\(150px vs 300px\\)\n- Increase viewport size on mobile to fill more screen space\n- Use window.innerWidth/Height for mobile viewport calculation\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add src/constants.js src/ui/UIController.js)",
+      "Bash(git commit -m \"Improve mobile UI layout and readability\n\n- Adjust viewport calculation to fit mobile screen minus UI\n- Increase UI font sizes on mobile for better readability\n- Resize and reposition buttons for mobile \\(smaller, fits 150px UI\\)\n- Smaller minimap on mobile \\(2px scale vs 3px\\)\n- Smaller production buttons with shorter text on mobile\n- Adjust production panel position for mobile\")",
+      "Bash(git commit -m \"Revert mobile viewport changes - fix sizing issue\")",
+      "Bash(git add src/main.js index.html)",
+      "Bash(git commit -m \"Use ENVELOP scale mode to fill mobile screen\")",
+      "Bash(git add src/main.js src/constants.js src/ui/UIController.js)",
+      "Bash(git commit -m \"Fix mobile scaling - use RESIZE mode with dynamic dimensions\")",
+      "Bash(npm run dev)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd stacking limit \\(1 unit per tile\\) and city blockade mechanics\n\nMajor gameplay changes:\n- Stacking limit: Only 1 unit per tile, units can pass through friendly tiles\n- City blockade: Cities cannot produce when enemy unit is adjacent\n- Production placement: Units spawn adjacent if city tile is occupied\n\nTechnical changes:\n- MovementSystem: Allow pathing through friendly units, prevent stopping\n- WarfireGame: Add blockade checks, update produceUnit spawn logic\n- GameMap: Add isCityBlockaded\\(\\) helper method\n- RenderSystem: Add visual blockade indicators \\(red border + swords icon\\)\n- UIController: Show blockade status and stacking limit info\n- AISystem: Respect tile occupancy and city blockades\n\nAlso includes existing changes from working directory.\nEOF\n\\)\")",
+      "Bash(git commit -m \"Fix map viewport clipping and zoom-aware camera bounds\n\n- Add viewport mask to clip map to game area only \\(not under UI\\)\n- Fix camera bounds to account for zoom level\n- Fix centerOnTile for correct centering at any zoom\n- Add bounds checking to zoomAt method\n- Update minimap viewport rectangle to show correct visible area at any zoom\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd spectator mode, map settings, and AI fixes\n\n- Fix map size button selection highlighting in menu\n- Add city and ruin count settings to game setup\n- Add spectator mode for all-AI games with pause/resume\n- Allow camera control \\(drag/zoom\\) in spectator mode\n- Fix AI movement - units now properly expand and explore\n- Fix variable name bug in AI city capture logic\n- Add default expansion behavior when no clear targets\n\nEOF\n\\)\")",
+      "Bash(git add src/)",
+      "Bash(git add src/constants.js src/game/WarfireGame.js src/models/Unit.js src/systems/AISystem.js src/systems/GameMap.js src/ui/UIController.js)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nImplement new hero and ruin mechanics with improved AI\n\nHero changes:\n- Hero is now a purchasable unit for 50 gold \\(was free\\)\n- Removed artifact system completely\n- Heroes now prioritize defending blockaded cities\n\nRuin changes:\n- Ruins now give one-time random bonus and disappear\n- Rewards: 50 gold, 100 gold, random unit, or new city\n- Any unit can now explore ruins \\(not just heroes\\)\n- Ruins spawn on adjacent free tile when creating unit/city\n\nAI improvements:\n- Aggressive early game expansion to neutral cities\n- Priority order: neutral empty > enemy empty > ruins > enemy defended\n- Opportunity attacks: AI attacks enemies along the way to objectives\n- Waypoint bonuses for ruins and enemy cities on the path\n- Improved city defense: units defend blockaded cities with high priority\n- Heroes and fast units prioritize defense of threatened cities\n- Production prioritizes fast units when cities are blockaded\n- Units in blockaded cities attack blockers when possible\n\nFiles changed:\n- constants.js: Hero cost 50, removed ARTIFACTS, added RUIN_REWARD_TYPES\n- Unit.js: Removed artifact logic\n- GameMap.js: Ruins now give random rewards and disappear\n- WarfireGame.js: New ruin exploration handler with rewards\n- AISystem.js: Complete AI overhaul for expansion and defense\n- UIController.js: Updated ruin display \\(no explored flag\\)\nEOF\n\\)\")"
     ]
   }
 }

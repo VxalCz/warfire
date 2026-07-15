@@ -11,6 +11,13 @@ const config = {
     backgroundColor: '#1a1a2e',
     pixelArt: true,
     scene: [MenuScene, GameScene],
+    scale: {
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
+    input: {
+        activePointers: 2
+    },
     physics: {
         default: 'arcade',
         arcade: {
@@ -19,4 +26,16 @@ const config = {
     }
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+// Force game loop to run even when tab is not visible
+game.loop.skipInactive = false;
+
+// Prevent Phaser from auto-pausing when tab is hidden
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        game.events.emit('hidden');
+    } else {
+        game.events.emit('visible');
+    }
+});

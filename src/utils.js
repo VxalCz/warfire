@@ -8,13 +8,23 @@ export const Utils = {
 
     manhattanDistance: (x1, y1, x2, y2) => Math.abs(x1 - x2) + Math.abs(y1 - y2),
 
+    chebyshevDistance: (x1, y1, x2, y2) => Math.max(Math.abs(x1 - x2), Math.abs(y1 - y2)),
+
     randomInt: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
 
     assert: (condition, message) => {
         if (!condition) throw new Error(`Assertion failed: ${message}`);
     },
 
-    clamp: (val, min, max) => Math.max(min, Math.min(max, val))
+    clamp: (val, min, max) => Math.max(min, Math.min(max, val)),
+
+    shuffleArray: (array) => {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
 };
 
 export class EventBus {
@@ -46,3 +56,4 @@ export class EventBus {
 }
 
 export const Events = new EventBus();
+

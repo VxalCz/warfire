@@ -10,6 +10,11 @@ export class UIController {
         this.height = height;
         this.elements = {};
         this.panels = {};
+        // Mobile UI adjustments
+        this.isMobile = CONFIG.IS_MOBILE;
+        this.fontSize = this.isMobile ? '14px' : '16px';
+        this.smallFont = this.isMobile ? '12px' : '14px';
+        this.tinyFont = this.isMobile ? '10px' : '12px';
     }
 
     initialize() {
@@ -18,66 +23,141 @@ export class UIController {
         // Main panel background
         bg.fillStyle(COLORS.uiBg, 1);
         bg.fillRect(this.x, this.y, this.width, this.height);
-        // Outer border
-        bg.lineStyle(4, COLORS.uiBorder, 1);
-        bg.strokeRect(this.x, this.y, this.width, this.height);
-        // Inner decorative line
-        bg.lineStyle(2, 0x2D5A8B, 1);
-        bg.strokeRect(this.x + 4, this.y + 4, this.width - 8, this.height - 8);
-        // Corner decorations
-        const cornerSize = 16;
-        bg.fillStyle(0xFFD700, 1);
-        // Top left
-        bg.fillTriangle(this.x, this.y, this.x + cornerSize, this.y, this.x, this.y + cornerSize);
-        // Top right
-        bg.fillTriangle(this.x + this.width, this.y, this.x + this.width - cornerSize, this.y, this.x + this.width, this.y + cornerSize);
-        // Bottom left
-        bg.fillTriangle(this.x, this.y + this.height, this.x + cornerSize, this.y + this.height, this.x, this.y + this.height - cornerSize);
-        // Bottom right
-        bg.fillTriangle(this.x + this.width, this.y + this.height, this.x + this.width - cornerSize, this.y + this.height, this.x + this.width, this.y + this.height - cornerSize);
 
-        // Header with title
-        bg.fillStyle(0x1A2F4A, 1);
-        bg.fillRect(this.x + 8, this.y + 8, this.width - 16, 30);
-        bg.lineStyle(2, 0xFFD700, 0.5);
-        bg.strokeRect(this.x + 8, this.y + 8, this.width - 16, 30);
+        // Desktop only: decorative elements
+        if (!this.isMobile) {
+            // Outer border
+            bg.lineStyle(4, COLORS.uiBorder, 1);
+            bg.strokeRect(this.x, this.y, this.width, this.height);
+            // Inner decorative line
+            bg.lineStyle(2, 0x2D5A8B, 1);
+            bg.strokeRect(this.x + 4, this.y + 4, this.width - 8, this.height - 8);
+            // Corner decorations
+            const cornerSize = 16;
+            bg.fillStyle(0xFFD700, 1);
+            // Top left
+            bg.fillTriangle(this.x, this.y, this.x + cornerSize, this.y, this.x, this.y + cornerSize);
+            // Top right
+            bg.fillTriangle(this.x + this.width, this.y, this.x + this.width - cornerSize, this.y, this.x + this.width, this.y + cornerSize);
+            // Bottom left
+            bg.fillTriangle(this.x, this.y + this.height, this.x + cornerSize, this.y + this.height, this.x, this.y + this.height - cornerSize);
+            // Bottom right
+            bg.fillTriangle(this.x + this.width, this.y + this.height, this.x + this.width - cornerSize, this.y + this.height, this.x + this.width, this.y + this.height - cornerSize);
 
-        // Player info with icons (using text instead of emojis for compatibility)
-        this.elements.playerText = this.createText(15, 45, 'Player 1', { fontSize: '16px', color: '#FFFFFF' });
-        this.elements.goldText = this.createText(35, 75, '50g', { fontSize: '14px', color: '#FFD700' });
-        this.elements.turnText = this.createText(35, 105, 'Turn 1', { fontSize: '12px', color: '#AAAAAA' });
+            // Header with title
+            bg.fillStyle(0x1A2F4A, 1);
+            bg.fillRect(this.x + 8, this.y + 8, this.width - 16, 30);
+            bg.lineStyle(2, 0xFFD700, 0.5);
+            bg.strokeRect(this.x + 8, this.y + 8, this.width - 16, 30);
+        }
 
-        // Icons for gold and turn (text-based)
-        const goldIcon = this.scene.add.text(this.x + 15, this.y + 75, '$', { fontSize: '14px', color: '#FFD700', fontFamily: 'Press Start 2P' });
-        const turnIcon = this.scene.add.text(this.x + 15, this.y + 105, 'T', { fontSize: '12px', color: '#AAAAAA', fontFamily: 'Press Start 2P' });
+        // Mobile: compact horizontal layout, Desktop: vertical sidebar
+        if (this.isMobile) {
+            // Mobile layout - horizontal flow
+            const col1X = 10;
+            const col2X = Math.floor(this.width * 0.35);
+            const col3X = Math.floor(this.width * 0.65);
 
-        // Panel sections with decorative headers
-        this.panels.selectedHeader = this.createPanelHeader(10, 130, 'Selected Unit');
-        this.elements.selectedInfo = this.createText(15, 155, 'None', { fontSize: '10px', lineSpacing: 5 });
+            // Column 1: Player info (compact, single line style)
+            this.elements.playerText = this.createText(col1X, 10, 'Player 1', { fontSize: '12px', color: '#FFFFFF' });
+            this.elements.goldText = this.createText(col1X, 32, '50g', { fontSize: '11px', color: '#FFD700' });
+            this.elements.turnText = this.createText(col1X + 50, 32, 'T1', { fontSize: '11px', color: '#AAAAAA' });
 
-        this.panels.stackHeader = this.createPanelHeader(10, 240, 'Stack');
-        this.elements.stackInfo = this.createText(15, 265, '', { fontSize: '9px', lineSpacing: 3 });
+            // Column 2: Selected unit info
+            this.elements.selectedInfo = this.createText(col2X, 10, 'None', { fontSize: '10px', lineSpacing: 2 });
 
-        this.panels.tileHeader = this.createPanelHeader(10, 320, 'Tile Info');
-        this.elements.tileInfo = this.createText(15, 345, '', { fontSize: '10px', lineSpacing: 4 });
+            // Column 3: Tile info
+            this.elements.tileInfo = this.createText(col3X, 10, '', { fontSize: '10px', lineSpacing: 2 });
 
-        // Action buttons
-        this.elements.endTurnBtn = this.createEnhancedButton(50, this.height - 150, 200, 50, 'END TURN', 0xFFD700, 0xFFAA00);
-        this.elements.saveBtn = this.createEnhancedButton(50, this.height - 90, 95, 40, 'SAVE', 0x4CAF50, 0x388E3C);
-        this.elements.loadBtn = this.createEnhancedButton(155, this.height - 90, 95, 40, 'LOAD', 0x2196F3, 0x1976D2);
+            // Stack info - hidden on mobile (shown in selected info)
+            this.elements.stackInfo = this.createText(0, 0, '', { fontSize: '9px' });
+            this.elements.stackInfo.setVisible(false);
 
-        // Minimap panel - positioned above production panel
-        this.panels.minimap = this.scene.add.container(this.x + 10, 390);
-        this.minimapScale = 3; // 3px per tile for better visibility
+            // Minimap on the right side, above buttons
+            const minimapSize = Math.min(80, this.height - 70);
+            this.panels.minimap = this.scene.add.container(this.width - minimapSize - 10, 10);
+            this.minimapScale = 2;
 
-        // Production panel (hidden by default) - positioned below minimap, above buttons
-        this.panels.production = this.scene.add.container(this.x + 10, 520);
+            // Production panel (hidden by default)
+            this.panels.production = this.scene.add.container(col2X, 10);
+
+            // Action buttons at bottom
+            const btnWidth = 100;
+            const btnHeight = 35;
+            const btnY = this.height - 45;
+
+            this.elements.endTurnBtn = this.createEnhancedButton(10, btnY, btnWidth, btnHeight, 'END TURN', 0xFFD700, 0xFFAA00);
+            this.elements.saveBtn = this.createEnhancedButton(120, btnY, 70, btnHeight, 'SAVE', 0x4CAF50, 0x388E3C);
+            this.elements.loadBtn = this.createEnhancedButton(200, btnY, 70, btnHeight, 'LOAD', 0x2196F3, 0x1976D2);
+        } else {
+            // Desktop layout - original vertical sidebar
+            this.elements.playerText = this.createText(15, 45, 'Player 1', { fontSize: this.fontSize, color: '#FFFFFF' });
+            this.elements.goldText = this.createText(35, 75, '50g', { fontSize: this.smallFont, color: '#FFD700' });
+            this.elements.turnText = this.createText(35, 105, 'Turn 1', { fontSize: this.tinyFont, color: '#AAAAAA' });
+
+            const goldIcon = this.scene.add.text(this.x + 15, this.y + 75, '$', { fontSize: this.smallFont, color: '#FFD700', fontFamily: 'Press Start 2P' });
+            const turnIcon = this.scene.add.text(this.x + 15, this.y + 105, 'T', { fontSize: this.tinyFont, color: '#AAAAAA', fontFamily: 'Press Start 2P' });
+
+            this.panels.selectedHeader = this.createPanelHeader(10, 130, 'Selected Unit');
+            this.elements.selectedInfo = this.createText(15, 155, 'None', { fontSize: '10px', lineSpacing: 5 });
+
+            this.panels.stackHeader = this.createPanelHeader(10, 240, 'Rules');
+            this.elements.stackInfo = this.createText(15, 265, '', { fontSize: '9px', lineSpacing: 3 });
+
+            this.panels.tileHeader = this.createPanelHeader(10, 320, 'Tile Info');
+            this.elements.tileInfo = this.createText(15, 345, '', { fontSize: '10px', lineSpacing: 4 });
+
+            const btnY = this.height - 150;
+            const btnWidth = 200;
+            const btnHeight = 50;
+            this.elements.endTurnBtn = this.createEnhancedButton(50, btnY, btnWidth, btnHeight, 'END TURN', 0xFFD700, 0xFFAA00);
+
+            const saveLoadY = this.height - 90;
+            this.elements.saveBtn = this.createEnhancedButton(50, saveLoadY, 95, 40, 'SAVE', 0x4CAF50, 0x388E3C);
+            this.elements.loadBtn = this.createEnhancedButton(155, saveLoadY, 95, 40, 'LOAD', 0x2196F3, 0x1976D2);
+
+            this.panels.minimap = this.scene.add.container(this.x + 10, 390);
+            this.minimapScale = 3;
+
+            this.panels.production = this.scene.add.container(this.x + 10, 520);
+        }
         this.panels.production.setVisible(false);
 
         // Event listeners
-        this.elements.endTurnBtn.on('pointerup', () => Events.emit('ui:endTurn'));
+        this.elements.endTurnBtn.on('pointerup', () => {
+            if (this.isSpectatorMode) {
+                Events.emit('ui:togglePause');
+            } else {
+                Events.emit('ui:endTurn');
+            }
+        });
         this.elements.saveBtn.on('pointerup', () => Events.emit('ui:save'));
         this.elements.loadBtn.on('pointerup', () => Events.emit('ui:load'));
+
+        // Spectator mode defaults to false
+        this.isSpectatorMode = false;
+    }
+
+    /**
+     * Set spectator mode - changes End Turn button to Pause
+     */
+    setSpectatorMode(enabled) {
+        this.isSpectatorMode = enabled;
+        const btnLabel = this.elements.endTurnBtn.list.find(obj => obj instanceof Phaser.GameObjects.Text);
+        if (btnLabel) {
+            btnLabel.setText(enabled ? 'PAUSE' : 'END TURN');
+        }
+    }
+
+    /**
+     * Update pause button text (Pause -> Resume -> Pause)
+     */
+    setPaused(isPaused) {
+        if (!this.isSpectatorMode) return;
+        const btnLabel = this.elements.endTurnBtn.list.find(obj => obj instanceof Phaser.GameObjects.Text);
+        if (btnLabel) {
+            btnLabel.setText(isPaused ? 'RESUME' : 'PAUSE');
+        }
     }
 
     /**
@@ -228,34 +308,75 @@ export class UIController {
         this.elements.turnText.setText(`Turn: ${turn}`);
     }
 
-    updateSelected(unit, stack) {
-        if (!unit) {
-            this.elements.selectedInfo.setText('None');
-            this.elements.stackInfo.setText('');
+    updateSelected(entity, selectedUnit, isBlockaded = false) {
+        if (!entity) {
+            this.elements.selectedInfo.setText(this.isMobile ? 'Select unit' : 'None');
+            if (!this.isMobile) {
+                this.elements.stackInfo.setText('1 unit per tile');
+            }
             return;
         }
 
-        const artifactNames = unit.artifacts.map(a => a.name).join(', ') || 'None';
-        const status = unit.hasMoved ? '[MOVED]' : unit.hasAttacked ? '[ATTACKED]' : '[READY]';
+        // Check if entity is a unit
+        if (entity.type && entity.hp !== undefined) {
+            const unit = entity;
+            const artifactNames = unit.artifacts.map(a => a.name).join(', ') || 'None';
+            let status;
+            if (unit.hasAttacked) {
+                status = '[A]';
+            } else if (unit.hasMoved) {
+                status = '[M]';
+            } else {
+                status = '[R]';
+            }
 
-        this.elements.selectedInfo.setText(
-            `${unit.name} ${status}\n` +
-            `HP: ${unit.hp}/${unit.maxHp}\n` +
-            `ATK: ${unit.effectiveAttack} DEF: ${unit.effectiveDefense}\n` +
-            `MOV: ${unit.effectiveMovement} RNG: ${unit.range}\n` +
-            `Artifacts: ${artifactNames}`
-        );
+            if (this.isMobile) {
+                // Compact mobile display
+                let text = `${unit.name} ${status}\n`;
+                text += `HP:${unit.hp}/${unit.maxHp} ATK:${unit.effectiveAttack}\n`;
+                text += `Artifacts:${artifactNames.length > 10 ? artifactNames.substring(0, 8) + '..' : artifactNames}`;
+                this.elements.selectedInfo.setText(text);
+            } else {
+                // Desktop full display
+                this.elements.selectedInfo.setText(
+                    `${unit.name} ${status}\n` +
+                    `HP: ${unit.hp}/${unit.maxHp}\n` +
+                    `ATK: ${unit.effectiveAttack} DEF: ${unit.effectiveDefense}\n` +
+                    `MOV: ${unit.effectiveMovement} RNG: ${unit.range}\n` +
+                    `Artifacts: ${artifactNames}`
+                );
 
-        if (stack && stack.units.length > 1) {
-            let text = `${stack.units.length} units:\n`;
-            stack.units.forEach(u => {
-                const moved = u.hasMoved ? 'M' : '.';
-                const attacked = u.hasAttacked ? 'A' : '.';
-                text += `${u.name} HP:${u.hp} [${moved}${attacked}]\n`;
-            });
-            this.elements.stackInfo.setText(text);
+                // Stack info panel now shows helper text
+                this.elements.stackInfo.setText('(1 unit per tile)');
+            }
+            return;
+        }
+
+        // Entity is a city
+        const city = entity;
+        if (this.isMobile) {
+            let text = `${city.size} City\n`;
+            text += `Income: +${city.income}g\n`;
+            if (isBlockaded) {
+                text += '[BLOCKADED!]';
+            }
+            this.elements.selectedInfo.setText(text);
         } else {
-            this.elements.stackInfo.setText('');
+            let text = `${city.size.toUpperCase()} CITY\n`;
+            text += `Income: +${city.income}g/turn\n`;
+            if (isBlockaded) {
+                text += '>>> BLOCKADED! <<<';
+            } else {
+                text += 'Production ready';
+            }
+            this.elements.selectedInfo.setText(text);
+
+            // Rules panel shows blockade status
+            if (isBlockaded) {
+                this.elements.stackInfo.setText('City under siege!\nCannot produce units.');
+            } else {
+                this.elements.stackInfo.setText('(1 unit per tile)');
+            }
         }
     }
 
@@ -272,23 +393,38 @@ export class UIController {
         const city = map.getCity(x, y);
         const ruin = map.getRuin(x, y);
 
-        let text = `${terrainName}`;
-        if (defenseBonus > 0) {
-            text += ` (DEF +${defenseBonus})`;
-        }
-
-        if (city) {
-            text += `\nCity: ${city.size}`;
-            if (city.owner !== null) {
-                text += ` (P${city.owner + 1})`;
-            } else {
-                text += ` (Neutral)`;
+        let text;
+        if (this.isMobile) {
+            // Compact mobile display
+            text = `${terrainName}`;
+            if (defenseBonus > 0) {
+                text += ` +${defenseBonus}DEF`;
             }
-            text += `\nIncome: +${city.income}g`;
-        }
-
-        if (ruin && !ruin.explored) {
-            text += `\nRuin (unexplored)`;
+            if (city) {
+                const owner = city.owner !== null ? `P${city.owner + 1}` : 'Neut';
+                text += `\n${city.size} city (${owner}) +${city.income}g`;
+            }
+            if (ruin) {
+                text += `\nRuin (!)`;
+            }
+        } else {
+            // Desktop full display
+            text = `${terrainName}`;
+            if (defenseBonus > 0) {
+                text += ` (DEF +${defenseBonus})`;
+            }
+            if (city) {
+                text += `\nCity: ${city.size}`;
+                if (city.owner !== null) {
+                    text += ` (P${city.owner + 1})`;
+                } else {
+                    text += ` (Neutral)`;
+                }
+                text += `\nIncome: +${city.income}g`;
+            }
+            if (ruin) {
+                text += `\nRuin (unexplored)`;
+            }
         }
 
         this.elements.tileInfo.setText(text);
@@ -302,25 +438,61 @@ export class UIController {
         this.panels.production.removeAll(true);
         this.panels.production.setVisible(true);
 
-        const title = this.scene.add.text(0, 0, 'PRODUCTION:', {
-            fontFamily: 'Press Start 2P', fontSize: '12px', color: '#FFFFFF'
-        });
-        this.panels.production.add(title);
-
         const options = city.getProductionOptions();
-        options.forEach((opt, idx) => {
-            const y = 30 + idx * 45;
-            const canAfford = player.gold >= opt.cost;
-            const btn = this.createProductionButton(0, y, 280, 40, opt, canAfford);
-            this.panels.production.add(btn.container);
 
-            if (canAfford) {
-                btn.container.on('pointerup', () => {
-                    Events.emit('ui:produce', { city, unitType: opt.type });
-                    this.hideProduction();
+        if (this.isMobile) {
+            // Mobile: show production as horizontal buttons
+            const btnWidth = 90;
+            const btnHeight = 28;
+            const spacing = 95;
+            const maxButtons = Math.min(options.length, 3); // Show max 3 buttons
+
+            options.slice(0, maxButtons).forEach((opt, idx) => {
+                const x = idx * spacing;
+                const canAfford = player.gold >= opt.cost;
+                const btn = this.createProductionButton(x, 0, btnWidth, btnHeight, opt, canAfford);
+                this.panels.production.add(btn.container);
+
+                if (canAfford) {
+                    btn.container.on('pointerup', () => {
+                        Events.emit('ui:produce', { city, unitType: opt.type });
+                        this.hideProduction();
+                    });
+                }
+            });
+
+            // If more options, add "More..." indicator
+            if (options.length > maxButtons) {
+                const moreText = this.scene.add.text(maxButtons * spacing + 10, 8, `+${options.length - maxButtons}`, {
+                    fontFamily: 'Press Start 2P', fontSize: '9px', color: '#AAAAAA'
                 });
+                this.panels.production.add(moreText);
             }
-        });
+        } else {
+            // Desktop: vertical list
+            const title = this.scene.add.text(0, 0, 'PRODUCTION:', {
+                fontFamily: 'Press Start 2P', fontSize: '12px', color: '#FFFFFF'
+            });
+            this.panels.production.add(title);
+
+            const btnWidth = 280;
+            const btnHeight = 40;
+            const spacing = 45;
+
+            options.forEach((opt, idx) => {
+                const y = 25 + idx * spacing;
+                const canAfford = player.gold >= opt.cost;
+                const btn = this.createProductionButton(0, y, btnWidth, btnHeight, opt, canAfford);
+                this.panels.production.add(btn.container);
+
+                if (canAfford) {
+                    btn.container.on('pointerup', () => {
+                        Events.emit('ui:produce', { city, unitType: opt.type });
+                        this.hideProduction();
+                    });
+                }
+            });
+        }
     }
 
     createProductionButton(x, y, w, h, opt, canAfford) {
@@ -333,8 +505,13 @@ export class UIController {
         bg.lineStyle(2, 0xFFFFFF, 1);
         bg.strokeRect(0, 0, w, h);
 
-        const label = this.scene.add.text(w / 2, h / 2, `${opt.name} - ${opt.cost}g`, {
-            fontFamily: 'Press Start 2P', fontSize: '10px', color: '#FFFFFF'
+        const labelSize = this.isMobile ? '9px' : '10px';
+        // Shorter text on mobile
+        const btnText = this.isMobile && opt.name.length > 8
+            ? `${opt.name.substring(0, 6)}.. ${opt.cost}g`
+            : `${opt.name} - ${opt.cost}g`;
+        const label = this.scene.add.text(w / 2, h / 2, btnText, {
+            fontFamily: 'Press Start 2P', fontSize: labelSize, color: '#FFFFFF'
         }).setOrigin(0.5, 0.5);
 
         container.add([bg, label]);
@@ -384,8 +561,9 @@ export class UIController {
      * @param {Player[]} players
      * @param {number} cameraX
      * @param {number} cameraY
+     * @param {number} zoom - current camera zoom level (default 1.0)
      */
-    updateMinimap(map, players, cameraX, cameraY) {
+    updateMinimap(map, players, cameraX, cameraY, zoom = 1.0) {
         this.panels.minimap.removeAll(true);
 
         const miniW = map.width * this.minimapScale;
@@ -433,16 +611,14 @@ export class UIController {
 
         // Ruins
         map.ruins.forEach(ruin => {
-            if (!ruin.explored) {
-                const dot = this.scene.add.rectangle(
-                    ruin.x * this.minimapScale + 1,
-                    ruin.y * this.minimapScale + 1,
-                    2, 2,
-                    0x8B4513
-                );
-                dot.setOrigin(0, 0);
-                this.panels.minimap.add(dot);
-            }
+            const dot = this.scene.add.rectangle(
+                ruin.x * this.minimapScale + 1,
+                ruin.y * this.minimapScale + 1,
+                2, 2,
+                0x8B4513
+            );
+            dot.setOrigin(0, 0);
+            this.panels.minimap.add(dot);
         });
 
         // Units (show only alive units)
@@ -463,11 +639,12 @@ export class UIController {
             });
         });
 
-        // Viewport rectangle
+        // Viewport rectangle - accounts for zoom (higher zoom = smaller visible area)
         const viewX = (cameraX / CONFIG.TILE_SIZE) * this.minimapScale;
         const viewY = (cameraY / CONFIG.TILE_SIZE) * this.minimapScale;
-        const viewW = (VIEWPORT_WIDTH / CONFIG.TILE_SIZE) * this.minimapScale;
-        const viewH = (VIEWPORT_HEIGHT / CONFIG.TILE_SIZE) * this.minimapScale;
+        // When zoomed in, visible area is smaller
+        const viewW = (VIEWPORT_WIDTH / CONFIG.TILE_SIZE / zoom) * this.minimapScale;
+        const viewH = (VIEWPORT_HEIGHT / CONFIG.TILE_SIZE / zoom) * this.minimapScale;
 
         const viewRect = this.scene.add.graphics();
         viewRect.lineStyle(2, 0xFFFFFF, 1);

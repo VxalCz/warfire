@@ -36,12 +36,12 @@ Dev server runs at `http://localhost:5173` by default.
 src/
 ├── constants.js          # All game constants (CONFIG, COLORS, UNIT_DEFINITIONS)
 ├── utils.js              # Shared utilities + EventBus singleton
-├── models/               # Pure data classes
+├── models/               # Pure data classes (Unit, City, Player, Stack)
 ├── systems/              # Logic systems with static or instance methods
 ├── ui/                   # UI rendering and interaction
-├── scenes/               # Phaser scene classes
-├── game/                 # Main game controller
-└── main.js               # Entry point, initializes Phaser
+├── scenes/              # Phaser scene classes (GameScene, MenuScene)
+├── game/                 # Main game controller (WarfireGame)
+└── main.js              # Entry point, initializes Phaser
 ```
 
 ### Key Patterns
@@ -61,9 +61,14 @@ this.state.transition(GameState.PHASES.SELECTED); // Validates transition
 ```
 
 **System Separation:**
-- `CombatSystem.performAttack()` - pure logic
+- `MapGenerator.generate()` - procedural map generation
+- `TextureGenerator.generateTextures()` - procedural texture creation
+- `CombatSystem.performAttack()` - pure combat logic
 - `RenderSystem.renderUnits()` - pure rendering with camera support
 - `AISystem.playTurn()` - AI player decisions
+- `MovementSystem` - unit movement and pathfinding
+- `GameState` - state machine for game phases
+- `SaveSystem.saveGame()` / `loadGame()` - save/load to localStorage
 - `WarfireGame` - orchestrates between systems
 
 **Camera System:**
@@ -82,7 +87,7 @@ const tile = this.renderer.screenToTile(screenX, screenY);
 
 **New Unit Type:**
 1. Add to `UNIT_DEFINITIONS` in `constants.js`
-2. Add sprite drawing in `WarfireGame.drawUnitSprite()`
+2. Add sprite drawing in `TextureGenerator.generateUnitTextures()`
 3. Optionally add terrain restrictions via `canEnter`
 
 **New Game Phase:**
@@ -125,7 +130,9 @@ game.renderer.containers.units.list  // See all unit sprites
 ```javascript
 game.state.phase      // Current phase
 game.state.selectedEntity  // What's selected
-game.map.getStack(x, y)    // Units at position
+game.map.getStack(x, y)    // Units at position (uses spatial index)
+game.map.getCity(x, y)     // O(1) lookup via cityGrid
+game.map.getUnitsAt(x, y)  // O(1) lookup via unitGrid
 game.renderer.camera   // Camera position {x, y}
 game.players[0].isAI   // Check if player is AI
 ```
@@ -134,6 +141,14 @@ game.players[0].isAI   // Check if player is AI
 - Press `S` to save, `L` to load
 - Or use UI buttons
 - Data stored in `localStorage` key `warfire_save`
+
+**Keyboard Shortcuts:**
+- `Arrow Keys` - Move camera
+- `C` - Center camera on current player
+- `P` - Open production menu (for selected city or city under cursor)
+- `ESC` - Deselect current unit/city
+- `S` - Save game
+- `L` - Load game
 
 ## Testing Changes
 
@@ -191,6 +206,42 @@ All game graphics are generated programmatically using Phaser 3 Graphics API:
 
 - No animations for unit movement (instant)
 - No sound effects
+- Stack limit is 1 unit per tile (no stacking)
 - Stack splitting not implemented in UI
 - No undo functionality
 - AI is rule-based (not machine learning), sometimes makes suboptimal decisions
+
+## Performance Optimizations
+
+The codebase includes several performance optimizations:
+
+- **Spatial Indexing**: `GameMap` uses `cityGrid`, `ruinGrid`, and `unitGrid` for O(1) lookups instead of O(n) array searches
+- **ZOC Caching**: `MovementSystem` caches Zone of Control calculations to avoid redundant checks
+- **Bounding Box Search**: Attack target search only iterates tiles within range instead of entire map
+- **AI thinkDelay**: Reduced to 200ms for faster AI turns
+
+When adding new features that query map positions frequently:
+- Use `gameMap.getCity(x, y)`, `gameMap.getRuin(x, y)`, `gameMap.getUnitsAt(x, y)` for O(1) lookups
+- Do not iterate over `gameMap.cities` or `gameMap.units` directly for position checks
+
+## Performance Optimizations
+
+The codebase includes several performance optimizations:
+
+**Spatial Indexing (GameMap):**
+- `cityGrid`, `ruinGrid`, `unitGrid` provide O(1) lookups
+- `getCity()`, `getRuin()`, `getUnitsAt()` are constant time
+- Always use these methods instead of iterating arrays
+
+**MovementSystem:**
+- ZOC (Zone of Control) caching to avoid redundant checks
+- Bounding box optimization for attack target search
+- Uses spatial grid internally
+
+**AI:**
+- Think delay reduced to 200ms for faster turns
+- Focus fire coordination between units
+
+## User Preferences
+
+**Git commits:** Do not add "Co-Authored-By: Claude Opus 4.6" or similar co-author lines to commit messages.
